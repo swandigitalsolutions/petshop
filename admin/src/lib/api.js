@@ -12,7 +12,18 @@ export class ApiError extends Error {
   constructor(status, message) { super(message); this.status = status; }
 }
 
+export const DEMO = import.meta.env.VITE_DEMO === 'true';
+
 export async function api(path, { method = 'GET', body, auth = true, signal } = {}) {
+  if (DEMO) {
+    // Static demo (e.g. Vercel): the whole backend runs in the browser.
+    const { demoApi } = await import('../../../shared/demo/backend.js');
+    try {
+      return await demoApi(path, { method, body, token: auth ? getToken() : null });
+    } catch (e) {
+      throw new ApiError(e.status || 500, e.message || 'Something went wrong. Please try again.');
+    }
+  }
   const headers = {};
   if (body !== undefined && !(body instanceof FormData)) headers['Content-Type'] = 'application/json';
   const token = auth ? getToken() : null;
@@ -92,4 +103,4 @@ export const PAY_STATUS = {
 export const VISIT_NAMES = { kennel_visit: 'Kennel visit', video_call: 'Video call', home_visit: 'Breed consultation' };
 
 // Public storefront URL, used for "View on store" links.
-export const STORE_URL = (import.meta.env.VITE_STORE_URL || 'http://localhost:5173').replace(/\/$/, '');
+export const STORE_URL = (import.meta.env.VITE_STORE_URL ?? (DEMO ? '' : 'http://localhost:5173')).replace(/\/$/, '');

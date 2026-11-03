@@ -1,0 +1,723 @@
+// In-browser demo backend for PawNest.
+// Implements the same REST API as /server so the storefront and admin portal run on
+// static hosting (e.g. Vercel) with no database. Data lives in localStorage and is shared
+// by the store (/) and admin (/admin) because they are served from the same domain.
+import * as seedData from '../../server/src/seed/data.js';
+
+const KEY = 'pawnest_demo_v1';
+const VISIT_TYPES = [
+  { key: 'kennel_visit', name: 'Visit the kennel', duration: '45 min', description: 'Meet the puppy and, where possible, the mother at our Indiranagar kennel.' },
+  { key: 'video_call', name: 'Video call', duration: '20 min', description: 'A live WhatsApp video call with the puppy and our care team.' },
+  { key: 'home_visit', name: 'Breed consultation', duration: '30 min', description: 'Not sure which breed fits your home? Talk it through with our team.' },
+];
+const ORDER_STATUSES = ['placed', 'confirmed', 'vet_check', 'ready', 'completed', 'cancelled'];
+const DOG_CEO = {
+  'Golden Retriever': 'retriever/golden', 'Labrador Retriever': 'labrador', 'German Shepherd': 'germanshepherd', Beagle: 'beagle',
+  'Shih Tzu': 'shihtzu', Pug: 'pug', 'Siberian Husky': 'husky', 'French Bulldog': 'bulldog/french', Pomeranian: 'pomeranian',
+  Rottweiler: 'rottweiler', 'Cocker Spaniel': 'spaniel/cocker', Dachshund: 'dachshund', Doberman: 'doberman', Maltese: 'maltese',
+  'Lhasa Apso': 'lhasa', 'Border Collie': 'collie/border', 'Great Dane': 'dane/great', 'Indie (Indian Pariah)': 'mix',
+};
+
+class HttpError extends Error { constructor(status, message) { super(message); this.status = status; } }
+const err = (s, m) => { throw new HttpError(s, m); };
+
+// ---------- utils ----------
+let rs = 42;
+const rand = () => { rs = (rs * 16807) % 2147483647; return (rs - 1) / 2147483646; };
+const pick = (a) => a[Math.floor(rand() * a.length)];
+const between = (a, b) => Math.floor(a + rand() * (b - a + 1));
+const oid = () => `${Date.now().toString(16)}${Math.random().toString(16).slice(2, 10)}`.padEnd(24, '0').slice(0, 24);
+const slugify = (s = '') => String(s).toLowerCase().normalize('NFKD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 80);
+const clone = (x) => JSON.parse(JSON.stringify(x));
+const csv = (v) => (v ? String(v).split(',').map((s) => s.trim()).filter(Boolean) : []);
+const num = (v) => (v === undefined || v === null || v === '' || Number.isNaN(Number(v)) ? undefined : Number(v));
+const now = () => new Date().toISOString();
+const dayStart = (d = new Date()) => { const x = new Date(d); x.setHours(0, 0, 0, 0); return x; };
+const rx = (q) => new RegExp(String(q).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
+const paginate = (list, q, def = 12, max = 60) => {
+  const page = Math.max(1, num(q.page) || 1);
+  const limit = Math.min(max, Math.max(1, num(q.limit) || def));
+  return { items: list.slice((page - 1) * limit, page * limit), total: list.length, page, pages: Math.ceil(list.length / limit) };
+};
+const LIVE = ['available', 'reserved'];
+
+// ---------- persistence ----------
+let db = null;
+const save = () => {
+  try { localStorage.setItem(KEY, JSON.stringify(db)); } catch (e) {
+    err(507, 'The demo storage in this browser is full. Use smaller photos, or reset the demo data from Store settings.');
+  }
+};
+const load = () => { try { return JSON.parse(localStorage.getItem(KEY)); } catch { return null; } };
+
+// ---------- real breed photos (Dog CEO API) ----------
+async function fetchPhotos() {
+  const out = {};
+  const ctl = new AbortController();
+  const t = setTimeout(() => ctl.abort(), 6000);
+  await Promise.all(Object.entries(DOG_CEO).map(async ([breed, path]) => {
+    try {
+      const r = await fetch(`https://dog.ceo/api/breed/${path}/images/random/10`, { signal: ctl.signal });
+      const j = await r.json();
+      if (j.status === 'success') out[breed] = [...new Set(j.message)];
+    } catch { /* offline: fall back below */ }
+  }));
+  clearTimeout(t);
+  return out;
+}
+
+// ---------- seed ----------
+async function buildSeed() {
+  rs = 42;
+  const photos = await fetchPhotos();
+  const cursor = {};
+  const photosFor = (breed, n = 3) => {
+    const list = photos[breed]?.length ? photos[breed] : seedData.FALLBACK_PHOTOS;
+    const start = cursor[breed] || 0;
+    cursor[breed] = start + n;
+    return Array.from({ length: n }, (_, i) => list[(start + i) % list.length]);
+  };
+  const d = { users: [], pets: [], breeds: [], orders: [], bookings: [], enquiries: [], testimonials: [], coupons: [], subscribers: [], counters: { order: 0, booking: 0 }, photosReal: Object.keys(photos).length > 0 };
+  d.settings = { ...clone(seedData.settings), heroImage: photosFor('Golden Retriever', 1)[0], visitSlots: ['10:00 AM', '11:30 AM', '1:00 PM', '3:00 PM', '4:30 PM', '6:00 PM'] };
+  d.breeds = seedData.breeds.map((b) => ({ ...clone(b), _id: oid(), slug: slugify(b.name), image: photosFor(b.name, 1)[0], createdAt: now() }));
+  d.coupons = seedData.coupons.map((c) => ({ ...c, _id: oid(), used: 0, active: true, expiresAt: new Date(Date.now() + 90 * 864e5).toISOString(), createdAt: now() }));
+
+  const mkUser = (u) => { const x = { _id: oid(), role: 'customer', addresses: [], wishlist: [], preferences: {}, blocked: false, createdAt: new Date(Date.now() - between(20, 300) * 864e5).toISOString(), ...u }; d.users.push(x); return x; };
+  mkUser({ name: 'Store Admin', email: 'admin@pawnest.in', password: 'Admin@123', role: 'admin', phone: '9900000000' });
+  mkUser({ name: 'Riya (Kennel staff)', email: 'staff@pawnest.in', password: 'Staff@123', role: 'staff', phone: '9900000001' });
+  const demo = mkUser({
+    name: 'Demo Customer', email: 'demo@pawnest.in', password: 'Demo@123', phone: '9876543210',
+    addresses: [{ _id: oid(), label: 'Home', name: 'Demo Customer', phone: '9876543210', line1: '221, Prestige Lakeside Habitat', line2: 'Varthur Road', city: 'Bengaluru', state: 'Karnataka', pincode: '560087', isDefault: true }],
+    preferences: { breeds: ['Golden Retriever', 'Beagle'], homeType: 'apartment', hasKids: true, firstDog: true },
+  });
+  const customers = [demo, ...seedData.customers.map((c) => mkUser({
+    name: c.name, email: c.email, phone: c.phone, password: 'Demo@123',
+    addresses: [{ _id: oid(), label: 'Home', name: c.name, phone: c.phone, line1: `${between(10, 400)}, ${between(1, 18)}th Cross`, line2: c.area, city: 'Bengaluru', state: 'Karnataka', pincode: `5600${between(10, 99)}`, isDefault: true }],
+  }))];
+
+  const iso = (x) => (x ? new Date(x).toISOString() : undefined);
+  d.pets = seedData.pets.map((p, i) => ({
+    vaccinated: true, dewormed: true, vetChecked: true, microchipped: false, kciRegistered: false, homeDelivery: true, adoption: false, featured: false, status: 'available', tags: [], energyLevel: 3,
+    ...clone(p), dob: iso(p.dob), readyToGoHome: iso(p.readyToGoHome),
+    _id: oid(), slug: slugify(`${p.name}-${p.breed}`), images: photosFor(p.breed, 3),
+    parents: { ...p.parents, ...(p.adoption ? {} : { sireImage: photosFor(p.breed, 1)[0], damImage: photosFor(p.breed, 1)[0] }) },
+    views: between(40, 900), createdAt: new Date(Date.now() - (i + 1) * 36e5 * 9).toISOString(),
+  }));
+  const sold = seedData.pastSales.map(([name, breed, price], i) => {
+    const pet = { _id: oid(), name, breed, price, gender: i % 2 ? 'female' : 'male', slug: slugify(`${name}-${breed}-sold-${i}`), code: `PN-S-${300 + i}`, dob: new Date(Date.now() - (14 + i) * 7 * 864e5).toISOString(), color: 'Mixed', status: 'sold', size: seedData.breeds.find((b) => b.name === breed)?.size || 'medium', images: photosFor(breed, 1), costPrice: Math.round(price * 0.62), description: `${name} has found a loving home.`, vaccinated: true, createdAt: now(), views: 0 };
+    d.pets.push(pet);
+    return pet;
+  });
+
+  const FLOW = ['placed', 'confirmed', 'vet_check', 'ready', 'completed'];
+  const NOTES = { confirmed: 'Payment received. Puppy reserved for you.', vet_check: 'Final vet check and vaccination update done.', ready: 'Ready to go home! We will call to fix the handover time.', completed: 'Welcome home! Enjoy your new family member.' };
+  const mkOrder = ({ pet, cust, createdAt, status, plan = 'full', handover = 'pickup' }) => {
+    d.counters.order += 1;
+    const price = pet.price;
+    const discount = rand() > 0.75 ? 2000 : 0;
+    const total = price - discount;
+    const deposit = Math.max(5000, Math.round((price * 0.1) / 500) * 500);
+    const amountPaid = status === 'completed' || plan === 'full' ? total : Math.min(deposit, total);
+    const upto = status === 'cancelled' ? ['placed', 'cancelled'] : FLOW.slice(0, FLOW.indexOf(status) + 1);
+    d.orders.push({
+      _id: oid(), orderNo: `PN${100000 + d.counters.order}`, user: cust._id, pet: pet._id,
+      petSnapshot: { name: pet.name, breed: pet.breed, image: pet.images[0], slug: pet.slug, gender: pet.gender, price },
+      customer: { name: cust.name, phone: cust.phone, email: cust.email }, paymentPlan: plan, handover,
+      handoverDate: new Date(createdAt.getTime() + between(3, 10) * 864e5).toISOString(),
+      address: handover === 'home_delivery' ? { ...cust.addresses[0] } : undefined,
+      petPrice: price, deliveryFee: 0, discount, total, amountPaid, balanceDue: Math.max(0, total - amountPaid), coupon: discount ? 'FIRSTPUP' : undefined,
+      paymentMethod: pick(['upi', 'upi', 'card', 'netbanking']), paymentStatus: status === 'cancelled' ? 'refunded' : amountPaid >= total ? 'paid' : 'partially_paid', status,
+      timeline: upto.map((st, i) => ({ _id: oid(), status: st, at: new Date(createdAt.getTime() + i * 1.5 * 864e5).toISOString(), note: NOTES[st] })),
+      createdAt: createdAt.toISOString(),
+    });
+  };
+  sold.forEach((pet, i) => {
+    const day = Math.floor((i / sold.length) * 28) + between(0, 1);
+    mkOrder({ pet, cust: pick(customers), createdAt: new Date(Date.now() - (29 - day) * 864e5 - between(0, 8) * 36e5), status: i === 5 ? 'cancelled' : 'completed', handover: rand() > 0.5 ? 'home_delivery' : 'pickup' });
+  });
+  d.pets.filter((p) => p.status === 'reserved').forEach((pet, i) => mkOrder({ pet, cust: i === 0 ? demo : customers[i + 2], createdAt: new Date(Date.now() - (i + 2) * 864e5), status: i === 0 ? 'vet_check' : 'confirmed', plan: 'deposit', handover: 'home_delivery' }));
+  const ginger = d.pets.find((p) => p.status === 'sold' && p.code);
+  if (ginger) mkOrder({ pet: ginger, cust: demo, createdAt: new Date(Date.now() - 20 * 864e5), status: 'completed' });
+
+  const available = d.pets.filter((p) => p.status === 'available');
+  for (let i = 0; i < 16; i += 1) {
+    const cust = pick(customers);
+    const pet = pick(available);
+    const offset = between(-8, 10);
+    d.counters.booking += 1;
+    d.bookings.push({
+      _id: oid(), bookingNo: `BK${5000 + d.counters.booking}`, user: cust._id, type: pick(VISIT_TYPES).key, pet: pet._id, petName: `${pet.name} (${pet.breed})`,
+      name: cust.name, phone: cust.phone, email: cust.email, people: between(1, 4), date: new Date(dayStart().getTime() + offset * 864e5).toISOString(), slot: pick(d.settings.visitSlots),
+      status: offset < 0 ? pick(['completed', 'completed', 'no_show', 'cancelled']) : pick(['pending', 'confirmed', 'confirmed']), createdAt: now(),
+    });
+  }
+  const p0 = d.pets[0];
+  const frenchie = d.pets.find((p) => p.breed === 'French Bulldog');
+  const kaalu = d.pets.find((p) => p.adoption);
+  d.enquiries = [
+    { pet: p0._id, petName: p0.name, breed: p0.breed, name: 'Nikhil Gowda', phone: '9886012345', email: 'nikhil@example.com', message: 'Can we visit this Saturday to meet Biscuit? Are both parents available to see?', type: 'pet', status: 'new' },
+    { pet: frenchie._id, petName: frenchie.name, breed: frenchie.breed, name: 'Sana Khan', phone: '9886054321', message: 'Is EMI available for the French Bulldog?', type: 'pet', status: 'new' },
+    { breed: 'Golden Retriever', name: 'Rohit Shetty', phone: '9886098765', message: 'Please add me to the waitlist for the next Golden Retriever litter (female).', type: 'breed_waitlist', status: 'contacted' },
+    { pet: kaalu._id, petName: 'Kaalu', breed: kaalu.breed, name: 'Lakshmi Iyer', phone: '9886011223', message: 'We would love to adopt Kaalu. We have a small garden.', type: 'adoption', status: 'new' },
+  ].map((e, i) => ({ ...e, _id: oid(), createdAt: new Date(Date.now() - i * 5 * 36e5).toISOString() }));
+  d.testimonials = seedData.testimonials.map((t) => ({ ...t, _id: oid(), approved: true, image: photosFor(t.breed === 'Indie' ? 'Indie (Indian Pariah)' : t.breed, 1)[0], createdAt: now() }));
+  return d;
+}
+
+let readyPromise = null;
+const ready = () => {
+  if (db) return Promise.resolve();
+  if (!readyPromise) {
+    readyPromise = (async () => {
+      db = load();
+      if (!db) { db = await buildSeed(); save(); }
+    })();
+  }
+  return readyPromise;
+};
+
+// ---------- auth ----------
+const safeUser = (u) => { const { password, ...rest } = u; return clone(rest); };
+const userFrom = (token) => {
+  if (!token || !String(token).startsWith('demo.')) return null;
+  return db.users.find((u) => u._id === String(token).slice(5)) || null;
+};
+const needUser = (ctx) => {
+  if (!ctx.user) err(401, 'Please sign in to continue');
+  if (ctx.user.blocked) err(403, 'This account has been suspended');
+  return ctx.user;
+};
+const needAdmin = (ctx) => { const u = needUser(ctx); if (!['admin', 'staff'].includes(u.role)) err(403, 'Admin access only'); return u; };
+
+// ---------- pets ----------
+const PUBLIC_HIDE = (p) => { const { costPrice, breeder, ...r } = p; return r; };
+const card = (p, n = 2) => ({ ...PUBLIC_HIDE(p), images: (p.images || []).slice(0, n) });
+const SORTS = {
+  newest: (a, b) => new Date(b.createdAt) - new Date(a.createdAt),
+  'price-asc': (a, b) => a.price - b.price,
+  'price-desc': (a, b) => b.price - a.price,
+  popular: (a, b) => (b.views || 0) - (a.views || 0),
+  youngest: (a, b) => new Date(b.dob) - new Date(a.dob),
+};
+const filterPets = (q, admin = false) => {
+  const breeds = csv(q.breed); const sizes = csv(q.size); const goodWith = csv(q.goodWith); const ids = csv(q.ids);
+  const statuses = q.status ? csv(q.status) : admin ? null : LIVE;
+  const min = num(q.minPrice); const max = num(q.maxPrice); const ageMax = num(q.ageMax);
+  const r = q.q ? rx(q.q) : null;
+  return db.pets.filter((p) =>
+    (!breeds.length || breeds.includes(p.breed)) && (!sizes.length || sizes.includes(p.size)) && (!q.gender || p.gender === q.gender)
+    && (!statuses || statuses.includes(p.status)) && (q.featured !== 'true' || p.featured) && (q.adoption !== 'true' || p.adoption) && (q.adoption !== 'false' || !p.adoption)
+    && (q.kci !== 'true' || p.kciRegistered) && (min === undefined || p.price >= min) && (max === undefined || p.price <= max)
+    && (ageMax === undefined || new Date(p.dob) >= new Date(Date.now() - ageMax * 7 * 864e5)) && goodWith.every((g) => (p.goodWith || []).includes(g))
+    && (!ids.length || ids.includes(p._id)) && (!r || r.test(p.name) || r.test(p.breed) || r.test(p.color || '') || r.test(p.code || '')));
+};
+const breedFacets = () => {
+  const m = {};
+  db.pets.filter((p) => LIVE.includes(p.status)).forEach((p) => { m[p.breed] ||= { _id: p.breed, count: 0, minPrice: p.price }; m[p.breed].count += 1; m[p.breed].minPrice = Math.min(m[p.breed].minPrice, p.price); });
+  return m;
+};
+const PET_FIELDS = ['name', 'code', 'breed', 'gender', 'dob', 'color', 'size', 'weightKg', 'price', 'mrp', 'images', 'videoUrl', 'description', 'temperament', 'goodWith', 'energyLevel', 'vaccinated', 'vaccinations', 'dewormed', 'microchipped', 'kciRegistered', 'vetChecked', 'healthGuaranteeMonths', 'parents', 'included', 'location', 'readyToGoHome', 'adoption', 'homeDelivery', 'status', 'featured', 'tags', 'costPrice', 'breeder'];
+const pickFields = (b, fields) => Object.fromEntries(fields.filter((k) => b[k] !== undefined).map((k) => [k, b[k] === '' ? undefined : b[k]]));
+const uniqueSlug = (list, base, id) => { const root = slugify(base) || 'item'; let s = root; let n = 1; while (list.some((x) => x.slug === s && x._id !== id)) { n += 1; s = `${root}-${n}`; } return s; };
+
+// ---------- orders ----------
+const couponDiscount = (c, base) => {
+  if (!c || !c.active) return { error: 'Invalid coupon code' };
+  if (c.expiresAt && new Date(c.expiresAt) < new Date()) return { error: 'This coupon has expired' };
+  if (c.usageLimit && c.used >= c.usageLimit) return { error: 'This coupon has reached its usage limit' };
+  if (base <= 0) return { error: 'Coupons cannot be used on free adoptions' };
+  if (base < (c.minOrder || 0)) return { error: `This coupon needs a puppy priced at ₹${c.minOrder.toLocaleString('en-IN')} or more` };
+  let v = c.type === 'percent' ? Math.round((base * c.value) / 100) : c.value;
+  if (c.maxDiscount) v = Math.min(v, c.maxDiscount);
+  return { discount: Math.min(v, base) };
+};
+const quote = ({ petId, paymentPlan = 'deposit', handover = 'pickup', city, coupon }) => {
+  const pet = db.pets.find((p) => p._id === petId);
+  if (!pet || pet.status === 'hidden') err(404, 'This puppy is no longer listed');
+  const s = db.settings;
+  let deliveryFee = 0;
+  if (handover === 'home_delivery') {
+    if (pet.homeDelivery === false) err(400, 'Home delivery is not available for this puppy');
+    const local = (s.freeDeliveryCities || ['Bengaluru']).some((c) => c.toLowerCase() === String(city || '').trim().toLowerCase());
+    deliveryFee = local ? 0 : s.outstationDeliveryFee ?? 6500;
+  }
+  let discount = 0; let couponError; let couponDoc;
+  if (coupon) { couponDoc = db.coupons.find((c) => c.code === String(coupon).toUpperCase()); const r = couponDiscount(couponDoc, pet.price); couponError = r.error; discount = r.discount || 0; }
+  const total = pet.price - discount + deliveryFee;
+  const deposit = pet.adoption || pet.price === 0 ? 0 : Math.min(total, Math.max(s.minDeposit ?? 5000, Math.round((pet.price * (s.depositPercent ?? 10)) / 100 / 500) * 500));
+  const payNow = paymentPlan === 'full' ? total : deposit;
+  return { pet, petPrice: pet.price, deliveryFee, discount, total, deposit, payNow, balance: total - payNow, couponError, couponDoc };
+};
+
+// ---------- image upload (compress in the browser) ----------
+const fileToDataUrl = (file) => new Promise((resolve, reject) => {
+  const img = new Image();
+  const url = URL.createObjectURL(file);
+  img.onload = () => {
+    const scale = Math.min(1, 1000 / Math.max(img.width, img.height));
+    const c = document.createElement('canvas');
+    c.width = Math.round(img.width * scale);
+    c.height = Math.round(img.height * scale);
+    c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+    URL.revokeObjectURL(url);
+    resolve(c.toDataURL('image/webp', 0.78));
+  };
+  img.onerror = () => { URL.revokeObjectURL(url); reject(new HttpError(400, `${file.name} isn't an image this browser can read`)); };
+  img.src = url;
+});
+
+// ---------- routes ----------
+const routes = [];
+const on = (method, pattern, fn) => {
+  const keys = [];
+  const re = new RegExp(`^${pattern.replace(/:(\w+)/g, (_, k) => { keys.push(k); return '([^/]+)'; })}$`);
+  routes.push({ method, re, keys, fn });
+};
+
+// public
+on('GET', '/home', () => {
+  const live = db.pets.filter((p) => LIVE.includes(p.status));
+  const facets = breedFacets();
+  return {
+    settings: db.settings,
+    featured: live.filter((p) => p.featured && !p.adoption).sort((a, b) => a.status.localeCompare(b.status) || SORTS.newest(a, b)).slice(0, 8).map((p) => card(p)),
+    latest: live.filter((p) => p.status === 'available' && !p.adoption).sort(SORTS.newest).slice(0, 8).map((p) => card(p)),
+    adoption: live.filter((p) => p.status === 'available' && p.adoption).slice(0, 3).map((p) => card(p, 1)),
+    breeds: [...db.breeds].sort((a, b) => a.order - b.order).map((b) => ({ ...b, count: facets[b.name]?.count || 0, minPrice: facets[b.name]?.minPrice })),
+    testimonials: db.testimonials.filter((t) => t.approved && t.featured).slice(0, 6),
+    stats: { families: db.orders.filter((o) => o.status === 'completed').length, available: db.pets.filter((p) => p.status === 'available').length, breeds: Object.keys(facets).length },
+    visitTypes: VISIT_TYPES,
+  };
+});
+on('GET', '/settings', () => ({ ...db.settings, visitTypes: VISIT_TYPES }));
+on('GET', '/breeds', () => { const f = breedFacets(); return [...db.breeds].sort((a, b) => a.order - b.order || a.name.localeCompare(b.name)).map((b) => ({ ...b, count: f[b.name]?.count || 0, minPrice: f[b.name]?.minPrice })); });
+on('GET', '/breeds/:slug', ({ params }) => {
+  const breed = db.breeds.find((b) => b.slug === params.slug) || err(404, 'Breed not found');
+  return { breed, puppies: db.pets.filter((p) => LIVE.includes(p.status) && p.breed === breed.name).sort((a, b) => a.status.localeCompare(b.status) || SORTS.newest(a, b)).map((p) => card(p)) };
+});
+on('GET', '/testimonials', () => db.testimonials.filter((t) => t.approved).sort((a, b) => Number(b.featured) - Number(a.featured)));
+on('POST', '/testimonials', (ctx) => {
+  const u = needUser(ctx);
+  const { quote: text, rating, petName, breed, city } = ctx.body;
+  if (!text || String(text).length < 20) err(400, 'Please write at least a couple of sentences about your experience');
+  if (!db.orders.some((o) => o.user === u._id && o.status !== 'cancelled')) err(403, 'Stories can be shared by families who have reserved a puppy with us');
+  db.testimonials.push({ _id: oid(), name: u.name, user: u._id, quote: String(text).slice(0, 1000), rating: Math.min(5, Math.max(1, Number(rating) || 5)), petName, breed, city, approved: false, featured: false, createdAt: now() });
+  save();
+  return { ok: true };
+});
+on('GET', '/search', ({ query }) => {
+  const q = String(query.q || '').trim();
+  if (q.length < 2) return { pets: [], breeds: [] };
+  const r = rx(q);
+  return {
+    pets: db.pets.filter((p) => LIVE.includes(p.status) && (r.test(p.name) || r.test(p.breed) || r.test(p.color || ''))).slice(0, 6).map((p) => card(p, 1)),
+    breeds: db.breeds.filter((b) => r.test(b.name) || (b.temperament || []).some((t) => r.test(t))).slice(0, 4),
+  };
+});
+on('POST', '/coupons/validate', ({ body }) => { const c = db.coupons.find((x) => x.code === String(body.code || '').toUpperCase() && x.active) || err(404, 'Invalid coupon code'); return { code: c.code, description: c.description }; });
+on('GET', '/coupons/public', () => db.coupons.filter((c) => c.active && (!c.expiresAt || new Date(c.expiresAt) > new Date())).map(({ code, description, minOrder }) => ({ code, description, minOrder })));
+on('GET', '/visits/slots', ({ query }) => {
+  const start = dayStart(new Date(query.date));
+  const end = new Date(start.getTime() + 864e5);
+  const counts = {};
+  db.bookings.filter((b) => new Date(b.date) >= start && new Date(b.date) < end && ['pending', 'confirmed'].includes(b.status)).forEach((b) => { counts[b.slot] = (counts[b.slot] || 0) + 1; });
+  return (db.settings.visitSlots || []).map((slot) => ({ slot, available: (counts[slot] || 0) < 3 }));
+});
+on('POST', '/visits', (ctx) => {
+  const { type, pet, name, phone, email, date, slot, people, notes } = ctx.body;
+  if (!VISIT_TYPES.some((v) => v.key === type)) err(400, 'Choose how you would like to meet');
+  if (!name || !phone || !date || !slot) err(400, 'Name, phone, date and time are required');
+  if (!/^[+\d\s-]{10,15}$/.test(phone)) err(400, 'Enter a valid phone number');
+  if (new Date(date) < dayStart()) err(400, 'Choose today or a future date');
+  const p = pet && db.pets.find((x) => x._id === pet);
+  db.counters.booking += 1;
+  const b = { _id: oid(), bookingNo: `BK${5000 + db.counters.booking}`, user: ctx.user?._id, type, pet: pet || undefined, petName: p ? `${p.name} (${p.breed})` : undefined, name, phone, email, date: new Date(date).toISOString(), slot, people: Math.min(6, Math.max(1, Number(people) || 1)), notes, status: 'pending', createdAt: now() };
+  db.bookings.push(b);
+  save();
+  return b;
+});
+on('GET', '/visits/mine', (ctx) => { const u = needUser(ctx); return db.bookings.filter((b) => b.user === u._id).sort((a, b) => new Date(b.date) - new Date(a.date)); });
+on('POST', '/visits/mine/:id/cancel', (ctx) => {
+  const u = needUser(ctx);
+  const b = db.bookings.find((x) => x._id === ctx.params.id && x.user === u._id && ['pending', 'confirmed'].includes(x.status)) || err(404, 'Visit not found or already closed');
+  b.status = 'cancelled';
+  save();
+  return b;
+});
+on('POST', '/enquiries', (ctx) => {
+  const { name, phone, email, message, pet, breed, type } = ctx.body;
+  if (!name || !phone) err(400, 'Name and phone are required');
+  const p = pet && db.pets.find((x) => x._id === pet);
+  db.enquiries.unshift({ _id: oid(), name, phone, email, message, pet: pet || undefined, petName: p?.name, breed: breed || p?.breed, type: type || (pet ? 'pet' : 'general'), status: 'new', createdAt: now() });
+  save();
+  return { ok: true };
+});
+on('POST', '/newsletter', ({ body }) => {
+  const email = String(body.email || '').trim().toLowerCase();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) err(400, 'Please enter a valid email');
+  if (!db.subscribers.some((s) => s.email === email)) db.subscribers.unshift({ _id: oid(), email, createdAt: now() });
+  save();
+  return { ok: true };
+});
+
+// auth
+on('POST', '/auth/register', ({ body }) => {
+  const { name, email, phone, password } = body;
+  if (!name || !email || !password) err(400, 'Name, email and password are required');
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) err(400, 'Please enter a valid email');
+  if (String(password).length < 6) err(400, 'Password must be at least 6 characters');
+  if (db.users.some((u) => u.email === email.toLowerCase())) err(409, 'An account with this email already exists');
+  const u = { _id: oid(), name, email: email.toLowerCase(), phone, password, role: 'customer', addresses: [], wishlist: [], preferences: {}, blocked: false, createdAt: now() };
+  db.users.push(u);
+  save();
+  return { token: `demo.${u._id}`, user: safeUser(u) };
+});
+on('POST', '/auth/login', ({ body }) => {
+  const u = db.users.find((x) => x.email === String(body.email || '').toLowerCase());
+  if (!u || u.password !== body.password) err(401, 'Invalid email or password');
+  if (u.blocked) err(403, 'This account has been suspended');
+  if (body.admin && !['admin', 'staff'].includes(u.role)) err(403, 'This account does not have admin access');
+  return { token: `demo.${u._id}`, user: safeUser(u) };
+});
+on('GET', '/auth/me', (ctx) => safeUser(needUser(ctx)));
+on('PUT', '/auth/me', (ctx) => {
+  const u = needUser(ctx);
+  const { name, phone, currentPassword, newPassword } = ctx.body;
+  if (name) u.name = name;
+  if (phone !== undefined) u.phone = phone;
+  if (newPassword) {
+    if (u.password !== currentPassword) err(400, 'Current password is incorrect');
+    if (String(newPassword).length < 6) err(400, 'New password must be at least 6 characters');
+    u.password = newPassword;
+  }
+  save();
+  return safeUser(u);
+});
+on('PUT', '/auth/me/preferences', (ctx) => {
+  const u = needUser(ctx);
+  const { breeds, homeType, hasKids, firstDog } = ctx.body;
+  u.preferences = { breeds: Array.isArray(breeds) ? breeds.slice(0, 10) : [], homeType, hasKids: Boolean(hasKids), firstDog: Boolean(firstDog) };
+  save();
+  return safeUser(u);
+});
+on('GET', '/auth/me/wishlist', (ctx) => needUser(ctx).wishlist.map((id) => db.pets.find((p) => p._id === id)).filter(Boolean).map((p) => card(p)));
+on('POST', '/auth/me/wishlist', (ctx) => {
+  const u = needUser(ctx);
+  const { id } = ctx.body;
+  if (!db.pets.some((p) => p._id === id)) err(404, 'Puppy not found');
+  const i = u.wishlist.indexOf(id);
+  if (i >= 0) u.wishlist.splice(i, 1); else u.wishlist.push(id);
+  save();
+  return { wishlist: u.wishlist, added: i < 0 };
+});
+
+// pets
+on('GET', '/pets', ({ query }) => {
+  const list = filterPets(query).sort((a, b) => a.status.localeCompare(b.status) || (SORTS[query.sort] || SORTS.newest)(a, b));
+  const pg = paginate(list, query);
+  const facets = breedFacets();
+  const priced = db.pets.filter((p) => LIVE.includes(p.status) && p.price > 0).map((p) => p.price);
+  return { ...pg, items: pg.items.map((p) => card(p)), facets: { breeds: Object.values(facets).sort((a, b) => b.count - a.count || a._id.localeCompare(b._id)), priceRange: { min: priced.length ? Math.min(...priced) : 0, max: priced.length ? Math.max(...priced) : 0 } } };
+});
+on('GET', '/pets/admin/all', (ctx) => {
+  needAdmin(ctx);
+  const list = filterPets(ctx.query, true).sort(SORTS[ctx.query.sort] || SORTS.newest);
+  const counts = {};
+  db.pets.forEach((p) => { counts[p.status] = (counts[p.status] || 0) + 1; });
+  return { ...paginate(list, ctx.query, 20, 100), counts };
+});
+on('GET', '/pets/admin/:id', (ctx) => { needAdmin(ctx); return db.pets.find((p) => p._id === ctx.params.id) || err(404, 'Puppy not found'); });
+on('GET', '/pets/:slug', ({ params }) => {
+  const pet = db.pets.find((p) => p.slug === params.slug && p.status !== 'hidden') || err(404, 'This puppy is no longer listed');
+  pet.views = (pet.views || 0) + 1;
+  save();
+  const similar = db.pets.filter((p) => p._id !== pet._id && p.status === 'available' && (p.breed === pet.breed || p.size === pet.size)).sort((a, b) => Number(b.breed === pet.breed) - Number(a.breed === pet.breed)).slice(0, 4).map((p) => card(p));
+  return { pet: PUBLIC_HIDE(pet), breed: db.breeds.find((b) => b.name === pet.breed) || null, similar, siblings: db.pets.filter((p) => p._id !== pet._id && p.breed === pet.breed && p.status === 'available').length };
+});
+on('POST', '/pets', (ctx) => {
+  needAdmin(ctx);
+  const data = pickFields(ctx.body, PET_FIELDS);
+  if (!data.name || !data.breed || data.price === undefined || !data.gender) err(400, 'Name, breed, gender and price are required');
+  if (data.adoption) data.price = 0;
+  const pet = { vaccinated: true, dewormed: true, vetChecked: true, homeDelivery: true, status: 'available', images: [], tags: [], views: 0, location: 'Bengaluru', ...data, _id: oid(), slug: uniqueSlug(db.pets, `${data.name}-${data.breed}`), code: data.code || `PN-${String(Date.now()).slice(-5)}`, size: data.size || db.breeds.find((b) => b.name === data.breed)?.size || 'medium', createdAt: now() };
+  db.pets.unshift(pet);
+  save();
+  return pet;
+});
+on('PUT', '/pets/:id', (ctx) => {
+  needAdmin(ctx);
+  const pet = db.pets.find((p) => p._id === ctx.params.id) || err(404, 'Puppy not found');
+  const data = pickFields(ctx.body, PET_FIELDS);
+  if (data.adoption) data.price = 0;
+  if ((data.name && data.name !== pet.name) || (data.breed && data.breed !== pet.breed)) data.slug = uniqueSlug(db.pets, `${data.name || pet.name}-${data.breed || pet.breed}`, pet._id);
+  Object.assign(pet, data);
+  save();
+  return pet;
+});
+on('DELETE', '/pets/:id', (ctx) => {
+  needAdmin(ctx);
+  const pet = db.pets.find((p) => p._id === ctx.params.id) || err(404, 'Puppy not found');
+  if (pet.status === 'reserved') err(400, 'This puppy has an active reservation. Cancel the reservation first.');
+  db.pets = db.pets.filter((p) => p._id !== pet._id);
+  save();
+  return { ok: true };
+});
+
+// orders
+on('POST', '/orders/quote', ({ body }) => { const { pet, couponDoc, ...r } = quote(body); return { ...r, available: pet.status === 'available', petName: pet.name }; });
+on('POST', '/orders', (ctx) => {
+  const u = needUser(ctx);
+  const { petId, paymentPlan = 'deposit', handover = 'pickup', handoverDate, address, customer, paymentMethod = 'upi', coupon, notes } = ctx.body;
+  if (!customer?.name || !customer?.phone) err(400, 'Please add your name and phone number');
+  if (handover === 'home_delivery' && (!address?.line1 || !address?.city || !address?.pincode)) err(400, 'Please add the full delivery address for your puppy');
+  const q = quote({ petId, paymentPlan, handover, city: address?.city, coupon });
+  if (q.couponError) err(400, q.couponError);
+  if (q.pet.status !== 'available') err(409, `${q.pet.name} has just been reserved by another family. Explore similar puppies below.`);
+  q.pet.status = 'reserved';
+  db.counters.order += 1;
+  const o = {
+    _id: oid(), orderNo: `PN${100000 + db.counters.order}`, user: u._id, pet: q.pet._id,
+    petSnapshot: { name: q.pet.name, breed: q.pet.breed, image: q.pet.images?.[0], slug: q.pet.slug, gender: q.pet.gender, price: q.pet.price },
+    customer: { name: customer.name, phone: customer.phone, email: customer.email || u.email }, paymentPlan: q.payNow >= q.total ? 'full' : paymentPlan, handover,
+    handoverDate: handoverDate ? new Date(handoverDate).toISOString() : undefined, address: handover === 'home_delivery' ? address : undefined,
+    petPrice: q.petPrice, deliveryFee: q.deliveryFee, discount: q.discount, total: q.total, amountPaid: q.payNow, balanceDue: q.balance, coupon: q.couponDoc?.code, paymentMethod,
+    paymentStatus: q.payNow >= q.total ? 'paid' : q.payNow > 0 ? 'partially_paid' : 'pending', status: 'placed', notes,
+    timeline: [{ _id: oid(), status: 'placed', at: now(), note: q.pet.adoption ? 'Adoption request received. We will call you for a short home check.' : `Reservation placed. ${q.payNow ? `₹${q.payNow.toLocaleString('en-IN')} received.` : ''}` }],
+    createdAt: now(),
+  };
+  if (q.couponDoc) q.couponDoc.used += 1;
+  db.orders.push(o);
+  save();
+  return o;
+});
+on('GET', '/orders/mine', (ctx) => { const u = needUser(ctx); return db.orders.filter((o) => o.user === u._id).sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)); });
+on('GET', '/orders/mine/:id', (ctx) => { const u = needUser(ctx); return db.orders.find((o) => (o._id === ctx.params.id || o.orderNo === ctx.params.id) && o.user === u._id) || err(404, 'Reservation not found'); });
+on('POST', '/orders/mine/:id/cancel', (ctx) => {
+  const u = needUser(ctx);
+  const o = db.orders.find((x) => x._id === ctx.params.id && x.user === u._id) || err(404, 'Reservation not found');
+  if (!['placed', 'confirmed'].includes(o.status)) err(400, 'This reservation is past the vet-check stage. Please call us to make changes.');
+  const pet = db.pets.find((p) => p._id === o.pet);
+  if (pet?.status === 'reserved') pet.status = 'available';
+  o.status = 'cancelled';
+  o.timeline.push({ _id: oid(), status: 'cancelled', at: now(), note: 'Cancelled by customer. Refund initiated.' });
+  if (o.amountPaid > 0) o.paymentStatus = 'refunded';
+  save();
+  return o;
+});
+on('GET', '/orders', (ctx) => {
+  needAdmin(ctx);
+  const { status, paymentStatus, q } = ctx.query;
+  const r = q ? rx(q) : null;
+  const list = db.orders.filter((o) => (!status || o.status === status) && (!paymentStatus || o.paymentStatus === paymentStatus)
+    && (!r || [o.orderNo, o.customer?.name, o.customer?.phone, o.petSnapshot?.name, o.petSnapshot?.breed].some((v) => v && r.test(v))))
+    .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+  const counts = {};
+  db.orders.forEach((o) => { counts[o.status] = (counts[o.status] || 0) + 1; });
+  return { ...paginate(list, ctx.query, 20, 100), counts };
+});
+on('GET', '/orders/:id', (ctx) => {
+  needAdmin(ctx);
+  const o = db.orders.find((x) => x._id === ctx.params.id) || err(404, 'Reservation not found');
+  const u = db.users.find((x) => x._id === o.user);
+  const p = db.pets.find((x) => x._id === o.pet);
+  return { ...o, user: u ? { _id: u._id, name: u.name, email: u.email, phone: u.phone, createdAt: u.createdAt } : null, pet: p ? { _id: p._id, name: p.name, slug: p.slug, code: p.code, breed: p.breed, images: p.images, status: p.status, costPrice: p.costPrice, breeder: p.breeder } : null };
+});
+on('PATCH', '/orders/:id', (ctx) => {
+  needAdmin(ctx);
+  const o = db.orders.find((x) => x._id === ctx.params.id) || err(404, 'Reservation not found');
+  const pet = db.pets.find((p) => p._id === o.pet);
+  const { status, note, recordPayment, handoverDate, adminNotes } = ctx.body;
+  if (status && status !== o.status) {
+    if (!ORDER_STATUSES.includes(status)) err(400, 'Invalid status');
+    if (status === 'cancelled') { if (pet?.status === 'reserved') pet.status = 'available'; if (o.amountPaid > 0) o.paymentStatus = 'refunded'; }
+    else if (o.status === 'cancelled') { if (pet?.status !== 'available') err(409, 'This puppy has been reserved by someone else since'); pet.status = 'reserved'; }
+    if (status === 'completed') { if (pet) pet.status = 'sold'; o.amountPaid = o.total; o.balanceDue = 0; o.paymentStatus = 'paid'; }
+    o.status = status;
+    o.timeline.push({ _id: oid(), status, at: now(), note: note || undefined });
+  } else if (note) o.timeline.push({ _id: oid(), status: o.status, at: now(), note });
+  if (recordPayment) {
+    const amt = Math.max(0, Math.min(Number(recordPayment) || 0, o.balanceDue));
+    o.amountPaid += amt; o.balanceDue -= amt;
+    o.paymentStatus = o.balanceDue <= 0 ? 'paid' : 'partially_paid';
+    o.timeline.push({ _id: oid(), status: o.status, at: now(), note: `Payment of ₹${amt.toLocaleString('en-IN')} recorded` });
+  }
+  if (handoverDate) o.handoverDate = new Date(handoverDate).toISOString();
+  if (adminNotes !== undefined) o.adminNotes = adminNotes;
+  save();
+  return o;
+});
+
+// admin
+on('GET', '/admin/stats', (ctx) => {
+  needAdmin(ctx);
+  const live = db.orders.filter((o) => o.status !== 'cancelled');
+  const sum = (a, k) => a.reduce((s, x) => s + (x[k] || 0), 0);
+  const pets = {};
+  db.pets.forEach((p) => { pets[p.status] ||= { count: 0, value: 0, cost: 0 }; pets[p.status].count += 1; pets[p.status].value += p.price || 0; pets[p.status].cost += p.costPrice || 0; });
+  const since = dayStart(new Date(Date.now() - 29 * 864e5));
+  const key = (d) => { const x = new Date(d); return `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, '0')}-${String(x.getDate()).padStart(2, '0')}`; };
+  const byDay = {};
+  live.filter((o) => new Date(o.createdAt) >= since).forEach((o) => { const k = key(o.createdAt); byDay[k] ||= { revenue: 0, orders: 0 }; byDay[k].revenue += o.total; byDay[k].orders += 1; });
+  const series = Array.from({ length: 30 }, (_, i) => { const k = key(new Date(since.getTime() + i * 864e5)); return { date: k, revenue: byDay[k]?.revenue || 0, orders: byDay[k]?.orders || 0 }; });
+  const breedSales = {};
+  live.forEach((o) => { const b = o.petSnapshot?.breed; breedSales[b] ||= { _id: b, sold: 0, revenue: 0 }; breedSales[b].sold += 1; breedSales[b].revenue += o.total; });
+  const completed = db.orders.filter((o) => o.status === 'completed');
+  const statusCounts = {};
+  db.orders.forEach((o) => { statusCounts[o.status] = (statusCounts[o.status] || 0) + 1; });
+  return {
+    booked: sum(live, 'total'), collected: sum(live, 'amountPaid'), balanceDue: sum(live, 'balanceDue'),
+    avgPrice: live.length ? Math.round(sum(live, 'petPrice') / live.length) : 0,
+    margin: completed.reduce((s, o) => s + o.total - (db.pets.find((p) => p._id === o.pet)?.costPrice || 0), 0),
+    completed: completed.length, activeReservations: db.orders.filter((o) => ['placed', 'confirmed', 'vet_check', 'ready'].includes(o.status)).length,
+    customers: db.users.filter((u) => u.role === 'customer').length, pets,
+    recent: [...db.orders].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)).slice(0, 8), series,
+    breedSales: Object.values(breedSales).sort((a, b) => b.revenue - a.revenue).slice(0, 6),
+    upcomingVisits: db.bookings.filter((b) => new Date(b.date) >= dayStart() && ['pending', 'confirmed'].includes(b.status)).sort((a, b) => new Date(a.date) - new Date(b.date)).slice(0, 6),
+    readySoon: db.orders.filter((o) => ['vet_check', 'ready'].includes(o.status)).slice(0, 6),
+    newEnquiries: db.enquiries.filter((e) => e.status === 'new').length, pendingStories: db.testimonials.filter((t) => !t.approved).length, statusCounts,
+  };
+});
+on('POST', '/admin/upload', async (ctx) => {
+  needAdmin(ctx);
+  const files = ctx.body instanceof FormData ? ctx.body.getAll('images') : [];
+  if (!files.length) err(400, 'No images received');
+  return { urls: await Promise.all(files.map(fileToDataUrl)) };
+});
+on('GET', '/admin/users', (ctx) => {
+  needAdmin(ctx);
+  const { role, q } = ctx.query;
+  const r = q ? rx(q) : null;
+  const list = db.users.filter((u) => (!role || u.role === role) && (!r || [u.name, u.email, u.phone].some((v) => v && r.test(v)))).sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+  const pg = paginate(list, ctx.query, 20, 100);
+  return { ...pg, items: pg.items.map((u) => { const os = db.orders.filter((o) => o.user === u._id && o.status !== 'cancelled'); return { ...safeUser(u), orders: os.length, spent: os.reduce((s, o) => s + o.amountPaid, 0), lastOrder: os.map((o) => o.createdAt).sort().pop() }; }) };
+});
+on('GET', '/admin/users/:id', (ctx) => {
+  needAdmin(ctx);
+  const u = db.users.find((x) => x._id === ctx.params.id) || err(404, 'Customer not found');
+  return {
+    user: { ...safeUser(u), wishlist: u.wishlist.map((id) => db.pets.find((p) => p._id === id)).filter(Boolean) },
+    orders: db.orders.filter((o) => o.user === u._id).sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)),
+    visits: db.bookings.filter((b) => b.user === u._id),
+    enquiries: db.enquiries.filter((e) => e.phone === u.phone),
+  };
+});
+on('PATCH', '/admin/users/:id', (ctx) => {
+  const me = needAdmin(ctx);
+  const u = db.users.find((x) => x._id === ctx.params.id) || err(404, 'Customer not found');
+  if (u._id === me._id && (ctx.body.blocked || (ctx.body.role && ctx.body.role !== 'admin'))) err(400, 'You cannot block or demote your own account');
+  if (ctx.body.blocked !== undefined) u.blocked = Boolean(ctx.body.blocked);
+  if (ctx.body.role) { if (me.role !== 'admin') err(403, 'Only admins can change roles'); u.role = ctx.body.role; }
+  save();
+  return safeUser(u);
+});
+const BREED_FIELDS = ['name', 'image', 'summary', 'description', 'size', 'origin', 'lifeSpan', 'weightRange', 'temperament', 'goodWith', 'energyLevel', 'shedding', 'grooming', 'trainability', 'apartmentFriendly', 'climateNote', 'featured', 'order'];
+on('GET', '/admin/breeds', (ctx) => {
+  needAdmin(ctx);
+  return [...db.breeds].sort((a, b) => a.order - b.order || a.name.localeCompare(b.name)).map((b) => { const stock = {}; db.pets.filter((p) => p.breed === b.name).forEach((p) => { stock[p.status] = (stock[p.status] || 0) + 1; }); return { ...b, stock }; });
+});
+on('POST', '/admin/breeds', (ctx) => {
+  needAdmin(ctx);
+  const data = pickFields(ctx.body, BREED_FIELDS);
+  if (!data.name) err(400, 'Breed name is required');
+  if (db.breeds.some((b) => b.name.toLowerCase() === data.name.toLowerCase())) err(409, 'That breed already exists');
+  const b = { temperament: [], goodWith: [], energyLevel: 3, shedding: 3, grooming: 3, trainability: 3, order: db.breeds.length + 1, ...data, _id: oid(), slug: uniqueSlug(db.breeds, data.name), createdAt: now() };
+  db.breeds.push(b);
+  save();
+  return b;
+});
+on('PUT', '/admin/breeds/:id', (ctx) => {
+  needAdmin(ctx);
+  const b = db.breeds.find((x) => x._id === ctx.params.id) || err(404, 'Breed not found');
+  const data = pickFields(ctx.body, BREED_FIELDS);
+  if (data.name && data.name !== b.name) { db.pets.filter((p) => p.breed === b.name).forEach((p) => { p.breed = data.name; }); data.slug = uniqueSlug(db.breeds, data.name, b._id); }
+  Object.assign(b, data);
+  save();
+  return b;
+});
+on('DELETE', '/admin/breeds/:id', (ctx) => {
+  needAdmin(ctx);
+  const b = db.breeds.find((x) => x._id === ctx.params.id) || err(404, 'Breed not found');
+  if (db.pets.some((p) => p.breed === b.name && LIVE.includes(p.status))) err(400, 'Remove or re-assign the puppies listed under this breed first');
+  db.breeds = db.breeds.filter((x) => x._id !== b._id);
+  save();
+  return { ok: true };
+});
+on('GET', '/admin/coupons', (ctx) => { needAdmin(ctx); return [...db.coupons].reverse(); });
+on('POST', '/admin/coupons', (ctx) => {
+  needAdmin(ctx);
+  const code = String(ctx.body.code || '').toUpperCase().trim();
+  if (!code || !ctx.body.value) err(400, 'Code and value are required');
+  if (db.coupons.some((c) => c.code === code)) err(409, 'Coupon code already exists');
+  const c = { type: 'flat', minOrder: 0, active: true, ...ctx.body, code, used: 0, _id: oid(), createdAt: now() };
+  db.coupons.push(c);
+  save();
+  return c;
+});
+on('PUT', '/admin/coupons/:id', (ctx) => {
+  needAdmin(ctx);
+  const c = db.coupons.find((x) => x._id === ctx.params.id) || err(404, 'Coupon not found');
+  const { _id, used, ...data } = ctx.body;
+  Object.assign(c, data, data.code ? { code: String(data.code).toUpperCase() } : {});
+  save();
+  return c;
+});
+on('DELETE', '/admin/coupons/:id', (ctx) => { needAdmin(ctx); db.coupons = db.coupons.filter((c) => c._id !== ctx.params.id); save(); return { ok: true }; });
+on('GET', '/admin/visits', (ctx) => {
+  needAdmin(ctx);
+  const { status, type, when } = ctx.query;
+  const upcoming = when !== 'past';
+  const list = db.bookings.filter((b) => (!status || b.status === status) && (!type || b.type === type) && (upcoming ? new Date(b.date) >= dayStart() : new Date(b.date) < dayStart()))
+    .sort((a, b) => (upcoming ? 1 : -1) * (new Date(a.date) - new Date(b.date)) || String(a.slot).localeCompare(String(b.slot)));
+  return paginate(list, ctx.query, 30, 100);
+});
+on('PATCH', '/admin/visits/:id', (ctx) => {
+  needAdmin(ctx);
+  const b = db.bookings.find((x) => x._id === ctx.params.id) || err(404, 'Visit not found');
+  ['status', 'slot', 'date'].forEach((k) => { if (ctx.body[k]) b[k] = ctx.body[k]; });
+  save();
+  return b;
+});
+on('GET', '/admin/enquiries', (ctx) => { needAdmin(ctx); const { status, type } = ctx.query; return db.enquiries.filter((e) => (!status || e.status === status) && (!type || e.type === type)); });
+on('PATCH', '/admin/enquiries/:id', (ctx) => { needAdmin(ctx); const e = db.enquiries.find((x) => x._id === ctx.params.id) || err(404, 'Enquiry not found'); e.status = ctx.body.status; save(); return e; });
+on('GET', '/admin/testimonials', (ctx) => { needAdmin(ctx); return [...db.testimonials].sort((a, b) => Number(a.approved) - Number(b.approved) || new Date(b.createdAt) - new Date(a.createdAt)); });
+on('POST', '/admin/testimonials', (ctx) => {
+  needAdmin(ctx);
+  if (!ctx.body.name || !ctx.body.quote) err(400, 'Name and story are required');
+  const t = { rating: 5, featured: false, approved: true, ...ctx.body, _id: oid(), createdAt: now() };
+  db.testimonials.unshift(t);
+  save();
+  return t;
+});
+on('PUT', '/admin/testimonials/:id', (ctx) => { needAdmin(ctx); const t = db.testimonials.find((x) => x._id === ctx.params.id) || err(404, 'Story not found'); const { _id, ...data } = ctx.body; Object.assign(t, data); save(); return t; });
+on('DELETE', '/admin/testimonials/:id', (ctx) => { needAdmin(ctx); db.testimonials = db.testimonials.filter((t) => t._id !== ctx.params.id); save(); return { ok: true }; });
+on('GET', '/admin/settings', (ctx) => { needAdmin(ctx); return db.settings; });
+on('PUT', '/admin/settings', (ctx) => { needAdmin(ctx); const { _id, key, visitTypes, ...data } = ctx.body; db.settings = { ...db.settings, ...data }; save(); return db.settings; });
+on('GET', '/admin/subscribers', (ctx) => { needAdmin(ctx); return db.subscribers; });
+on('POST', '/admin/demo-reset', async (ctx) => {
+  needAdmin(ctx);
+  db = await buildSeed();
+  save();
+  return { ok: true };
+});
+
+// ---------- entry point used by both apps' api() helper ----------
+export async function demoApi(path, { method = 'GET', body, token } = {}) {
+  await ready();
+  const [p, qsPart = ''] = path.split('?');
+  const query = Object.fromEntries(new URLSearchParams(qsPart));
+  for (const r of routes) {
+    if (r.method !== method) continue;
+    const m = p.match(r.re);
+    if (!m) continue;
+    const params = Object.fromEntries(r.keys.map((k, i) => [k, decodeURIComponent(m[i + 1])]));
+    // re-read so the store and admin tabs see each other's changes
+    const fresh = load();
+    if (fresh) db = fresh;
+    const ctx = { params, query, body: body ?? {}, user: userFrom(token) };
+    const result = await r.fn(ctx);
+    return clone(result);
+  }
+  throw new HttpError(404, 'Not found');
+}
+
+export { HttpError as DemoError };

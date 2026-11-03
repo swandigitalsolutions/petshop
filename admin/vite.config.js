@@ -3,8 +3,11 @@ import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
 
 export default defineConfig({
+  // Served at /admin/ in the single-project Vercel demo; at / when deployed on its own.
+  base: process.env.ADMIN_BASE || '/',
   plugins: [react(), tailwindcss()],
   server: {
+    fs: { allow: ['..'] },
     port: 5174,
     proxy: {
       '/api': 'http://localhost:5000',

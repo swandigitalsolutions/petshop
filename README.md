@@ -15,7 +15,25 @@ Demo logins (created automatically):
 
 ---
 
-## Run it locally
+## Deploy the demo to Vercel (no database needed)
+
+The repo is ready for a **single Vercel project** that runs the whole store in the browser. There's no MongoDB or server to set up.
+
+1. Go to [vercel.com/new](https://vercel.com/new), import the `petshop` GitHub repo, and leave **Root Directory** as the repo root.
+2. Don't change any build settings (`vercel.json` already has them) and click **Deploy**.
+
+You get:
+
+- **Storefront:** `https://<your-project>.vercel.app`
+- **Admin portal:** `https://<your-project>.vercel.app/admin`
+
+In demo mode the backend runs in the visitor's browser. The data is saved in that browser, so each visitor gets their own fresh copy of the demo store. The store and admin share that data, so a puppy you reserve on the store shows up straight away in the admin. Real breed photos load live from the Dog CEO library. To start over, use **Store settings → Reset demo data** in the admin.
+
+To build the same demo locally: `npm install --prefix client && npm install --prefix admin && npm run build:demo`, then serve the `dist/` folder.
+
+---
+
+## Run it locally with the real API
 
 You need **Node 18+** and **MongoDB** (local, Docker, or a free MongoDB Atlas cluster).
 

@@ -22,7 +22,7 @@ function RevenueChart({ series = [] }) {
           <h2 className="text-lg font-bold">Reservations booked, last 30 days</h2>
           <p className="text-sm text-ink-soft">{money(total)} across {series.reduce((s, d) => s + d.orders, 0)} reservations</p>
         </div>
-        <p className="text-sm tabular-nums text-ink-soft">{h ? <><span className="font-semibold text-ink">{money(h.revenue)}</span> on {formatDate(h.date, { day: 'numeric', month: 'short' })} ({h.orders})</> : 'Hover a bar for details'}</p>
+        <p className="text-sm tabular-nums text-ink-soft">{h ? <><span className="font-semibold text-ink">{money(h.revenue)}</span> on {formatDate(h.date, { day: 'numeric', month: 'short' })} ({h.orders})</> : 'Tap a bar for details'}</p>
       </div>
       <svg viewBox={`0 0 ${W} ${H}`} className="mt-4 w-full" role="img" aria-label="Daily reservation value for the last 30 days" onMouseLeave={() => setHover(null)}>
         {[0.25, 0.5, 0.75, 1].map((f) => <line key={f} x1={pad.l} x2={W - pad.r} y1={y(max * f)} y2={y(max * f)} stroke="var(--color-line)" strokeDasharray="3 4" />)}
@@ -30,7 +30,7 @@ function RevenueChart({ series = [] }) {
           const x = pad.l + i * bw;
           const top = y(d.revenue);
           return (
-            <g key={d.date} onMouseEnter={() => setHover(i)}>
+            <g key={d.date} onMouseEnter={() => setHover(i)} onClick={() => setHover(i)}>
               <rect x={x} y={pad.t} width={bw} height={H - pad.t - pad.b} fill="transparent" />
               <rect x={x + bw * 0.18} y={top} width={bw * 0.64} height={Math.max(0, H - pad.b - top)} rx={3} fill={hover === i ? 'var(--color-yolk-deep)' : d.revenue ? 'var(--color-ink)' : 'var(--color-line)'} />
               {i % 5 === 0 && <text x={x + bw / 2} y={H - 8} textAnchor="middle" fontSize="11" fill="var(--color-ink-soft)">{formatDate(d.date, { day: 'numeric', month: 'short' })}</text>}

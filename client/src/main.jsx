@@ -11,7 +11,8 @@ import './index.css';
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
-      staleTime: 5 * 60 * 1000, // serve cached data instantly, refresh in background
+      // serve cached data instantly, refresh in background (shorter in the browser demo so admin edits show up quickly)
+      staleTime: import.meta.env.VITE_DEMO === 'true' ? 15 * 1000 : 5 * 60 * 1000,
       gcTime: 30 * 60 * 1000,
       refetchOnWindowFocus: false,
       retry: 1,

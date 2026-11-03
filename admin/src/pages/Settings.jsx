@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { api } from '../lib/api.js';
+import { api, DEMO } from '../lib/api.js';
 import { PageHead, Field, Spinner } from '../components/ui.jsx';
 import ImageUploader from '../components/ImageUploader.jsx';
 import { useToast } from '../components/Toast.jsx';
@@ -25,6 +25,11 @@ export default function Settings() {
   if (isLoading || !f) return <div className="skeleton h-96" />;
   const set = (k, v) => setF((p) => ({ ...p, [k]: v }));
   const setIn = (o, k, v) => setF((p) => ({ ...p, [o]: { ...p[o], [k]: v } }));
+  const resetDemo = async () => {
+    if (!window.confirm('Reset all demo data (puppies, reservations, visits, customers) back to the original demo?')) return;
+    await api('/admin/demo-reset', { method: 'POST', body: {} });
+    window.location.reload();
+  };
   const save = async (e) => {
     e.preventDefault();
     setBusy(true);
@@ -43,7 +48,7 @@ export default function Settings() {
   };
   return (
     <form onSubmit={save}>
-      <PageHead title="Store settings" sub="Homepage text, reservation rules and contact details." actions={<button className="btn btn-dark" disabled={busy}>{busy ? <Spinner /> : 'Save settings'}</button>} />
+      <PageHead title="Store settings" sub="Homepage text, reservation rules and contact details." actions={<>{DEMO && <button type="button" onClick={resetDemo} className="btn btn-outline">Reset demo data</button>}<button className="btn btn-dark" disabled={busy}>{busy ? <Spinner /> : 'Save settings'}</button></>} />
       <div className="grid gap-6 xl:grid-cols-2">
         <Section title="Homepage">
           <Field label="Announcement bar"><input className="input" value={f.announcement || ''} onChange={(e) => set('announcement', e.target.value)} /></Field>
