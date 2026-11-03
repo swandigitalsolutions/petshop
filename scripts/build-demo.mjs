@@ -13,5 +13,5 @@ run('npm run build', 'admin', { VITE_DEMO: 'true', ADMIN_BASE: '/admin/' });
 const out = path.join(root, 'dist');
 fs.rmSync(out, { recursive: true, force: true });
 fs.cpSync(path.join(root, 'client', 'dist'), out, { recursive: true });
-fs.cpSync(path.join(root, 'admin', 'dist'), path.join(out, 'admin'), { recursive: true });
+fs.cpSync(path.join(root, 'admin', 'dist', 'admin'), path.join(out, 'admin'), { recursive: true });
 console.log('\nDemo built in ./dist  (store: /   admin: /admin)');

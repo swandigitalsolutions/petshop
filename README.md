@@ -15,21 +15,34 @@ Demo logins (created automatically):
 
 ---
 
-## Deploy the demo to Vercel (no database needed)
+## Deploy to Vercel (one project, three services)
 
-The repo is ready for a **single Vercel project** that runs the whole store in the browser. There's no MongoDB or server to set up.
+`vercel.json` uses [Vercel Services](https://vercel.com/docs/services), so the store, admin and API deploy together on one domain:
 
-1. Go to [vercel.com/new](https://vercel.com/new), import the `petshop` GitHub repo, and leave **Root Directory** as the repo root.
-2. Don't change any build settings (`vercel.json` already has them) and click **Deploy**.
+| Service | Folder | Public path |
+|---|---|---|
+| `client` (storefront) | `client/` | `/` (everything not matched below) |
+| `admin` (admin portal) | `admin/` | `/admin` and `/admin/*` |
+| `server` (Express API) | `server/` | `/api/*` |
 
-You get:
+The browser apps call the API at `/api` on the same domain, so no service calls another service internally and there are no bindings.
 
-- **Storefront:** `https://<your-project>.vercel.app`
-- **Admin portal:** `https://<your-project>.vercel.app/admin`
+**Steps**
 
-In demo mode the backend runs in the visitor's browser. The data is saved in that browser, so each visitor gets their own fresh copy of the demo store. The store and admin share that data, so a puppy you reserve on the store shows up straight away in the admin. Real breed photos load live from the Dog CEO library. To start over, use **Store settings → Reset demo data** in the admin.
+1. Create a free MongoDB Atlas cluster. Under Network Access allow `0.0.0.0/0`, since Vercel functions don't have fixed IPs, then copy the connection string.
+2. Import the `petshop` repo at [vercel.com/new](https://vercel.com/new) and keep the repo root as the Root Directory.
+3. Add environment variables:
+   - `MONGO_URI`: your Atlas connection string, including a database name, e.g. `…mongodb.net/pawnest`
+   - `JWT_SECRET`: any long random string
+   - optionally `ADMIN_EMAIL` / `ADMIN_PASSWORD` for the demo admin login
+4. Deploy. On the first API request the server sees an empty database and loads the demo store, with real breed photos linked from the Dog CEO library. That first request takes a few seconds. Alternatively, seed ahead of time from your machine: `MONGO_URI=<atlas uri> npm run seed`.
 
-To build the same demo locally: `npm install --prefix client && npm install --prefix admin && npm run build:demo`, then serve the `dist/` folder.
+**Notes for Vercel**
+
+- Vercel's filesystem is read-only, so photos uploaded in the admin are compressed to WebP and stored in MongoDB. The admin shrinks each photo in the browser and uploads it on its own, which keeps every request under Vercel's 4.5 MB limit. For heavy use, switch uploads to Vercel Blob or S3.
+- Test everything locally with `vercel dev`, which runs all three services together.
+
+**No-database option:** `npm run build:demo` builds a static version where the backend runs in the visitor's browser (`shared/demo/`). It's handy for a quick showcase without Atlas. To host it, deploy `dist/` as a plain static site.
 
 ---
 
@@ -97,7 +110,7 @@ Both apps are responsive. On phones the admin tables turn into tappable card lis
 
 ---
 
-## Deploying (giving the admin its own link)
+## Other hosting (separate API and frontends)
 
 | Part | Suggested host | Settings |
 |---|---|---|

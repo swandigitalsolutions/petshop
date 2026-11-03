@@ -2,9 +2,13 @@ import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
 
+// Served at /admin/ on Vercel (ADMIN_BASE=/admin/), at / when deployed on its own.
+// Vercel passes the full path (/admin/...) to the service, so the files must also
+// live under dist/admin/ for the static server to find them.
+const base = process.env.ADMIN_BASE || '/';
+
 export default defineConfig({
-  // Served at /admin/ in the single-project Vercel demo; at / when deployed on its own.
-  base: process.env.ADMIN_BASE || '/',
+  base,
   plugins: [react(), tailwindcss()],
   server: {
     fs: { allow: ['..'] },
@@ -16,6 +20,8 @@ export default defineConfig({
     },
   },
   build: {
+    outDir: base === '/' ? 'dist' : `dist${base.replace(/\/$/, '')}`,
+    emptyOutDir: true,
     target: 'es2020',
     cssCodeSplit: true,
     rollupOptions: {

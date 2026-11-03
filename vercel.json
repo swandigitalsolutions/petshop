@@ -1,15 +1,40 @@
 {
-  "installCommand": "npm install --prefix client && npm install --prefix admin",
-  "buildCommand": "node scripts/build-demo.mjs",
-  "outputDirectory": "dist",
-  "framework": null,
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "services": {
+    "server": {
+      "root": "server",
+      "framework": "express",
+      "entrypoint": "src/index.js"
+    },
+    "admin": {
+      "root": "admin",
+      "framework": "vite",
+      "buildCommand": "ADMIN_BASE=/admin/ VITE_STORE_URL= npm run build",
+      "outputDirectory": "dist",
+      "rewrites": [
+        { "source": "/admin", "destination": "/admin/index.html" },
+        { "source": "/admin/(.*)", "destination": "/admin/index.html" }
+      ],
+      "headers": [
+        { "source": "/admin/assets/(.*)", "headers": [{ "key": "Cache-Control", "value": "public, max-age=31536000, immutable" }] }
+      ]
+    },
+    "client": {
+      "root": "client",
+      "framework": "vite",
+      "outputDirectory": "dist",
+      "rewrites": [
+        { "source": "/(.*)", "destination": "/index.html" }
+      ],
+      "headers": [
+        { "source": "/assets/(.*)", "headers": [{ "key": "Cache-Control", "value": "public, max-age=31536000, immutable" }] }
+      ]
+    }
+  },
   "rewrites": [
-    { "source": "/admin", "destination": "/admin/index.html" },
-    { "source": "/admin/(.*)", "destination": "/admin/index.html" },
-    { "source": "/(.*)", "destination": "/index.html" }
-  ],
-  "headers": [
-    { "source": "/assets/(.*)", "headers": [{ "key": "Cache-Control", "value": "public, max-age=31536000, immutable" }] },
-    { "source": "/admin/assets/(.*)", "headers": [{ "key": "Cache-Control", "value": "public, max-age=31536000, immutable" }] }
+    { "source": "/api/(.*)", "destination": { "service": "server" } },
+    { "source": "/admin", "destination": { "service": "admin" } },
+    { "source": "/admin/(.*)", "destination": { "service": "admin" } },
+    { "source": "/(.*)", "destination": { "service": "client" } }
   ]
 }

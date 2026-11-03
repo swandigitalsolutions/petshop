@@ -30,7 +30,7 @@ export const seed = async ({ silent = false } = {}) => {
 
   await Promise.all([
     User.deleteMany({}), Pet.deleteMany({}), Breed.deleteMany({}), Order.deleteMany({}), Coupon.deleteMany({}),
-    Booking.deleteMany({}), Enquiry.deleteMany({}), Testimonial.deleteMany({}), Setting.deleteMany({}), Counter.deleteMany({}),
+    Booking.deleteMany({}), Enquiry.deleteMany({}), Testimonial.deleteMany({}), Setting.deleteMany({}), Counter.deleteMany({ _id: { $ne: 'seed-lock' } }),
   ]);
 
   await Setting.create({ ...data.settings, heroImage: photos['Golden Retriever']?.[0] || data.FALLBACK_PHOTOS[0] });

@@ -56,6 +56,17 @@ const download = async (url, file) => {
  * If the internet is unavailable, returns {} and the seed falls back to remote photos.
  */
 export async function fetchBreedPhotos(perBreed = 8, log = () => {}) {
+  // Vercel's filesystem is read-only: link to the Dog CEO photos instead of downloading them.
+  if (process.env.VERCEL) {
+    const linked = {};
+    await Promise.all(Object.entries(DOG_CEO_PATHS).map(async ([breed, p]) => {
+      try {
+        const { message } = await fetchJson(`https://dog.ceo/api/breed/${p}/images/random/${perBreed}`);
+        linked[breed] = [...new Set(message)];
+      } catch (err) { log(`[seed] could not fetch photos for ${breed}: ${err.message}`); }
+    }));
+    return linked;
+  }
   fs.mkdirSync(DIR, { recursive: true });
   const result = {};
   const entries = Object.entries(DOG_CEO_PATHS);

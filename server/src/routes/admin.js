@@ -88,17 +88,22 @@ router.get(
 );
 
 // ---------- Image upload (auto-converted to compressed WebP) ----------
+// On your own server photos are written to ./uploads. Vercel's filesystem is read-only,
+// so there the compressed WebP is stored in MongoDB as a data URL instead.
+const ON_VERCEL = Boolean(process.env.VERCEL);
 const uploadDir = path.resolve('uploads');
-fs.mkdirSync(uploadDir, { recursive: true });
+if (!ON_VERCEL) fs.mkdirSync(uploadDir, { recursive: true });
 const upload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 10 * 1024 * 1024, files: 12 },
+  limits: { fileSize: 4 * 1024 * 1024, files: 12 }, // Vercel functions accept request bodies up to 4.5 MB
   fileFilter: (_req, file, cb) =>
     /^image\/(jpeg|png|webp|gif|avif|heic|heif)$/.test(file.mimetype) ? cb(null, true) : cb(new HttpError(400, 'Only image files are allowed')),
 });
 
 let sharp = null;
 try { sharp = (await import('sharp')).default; } catch { console.warn('[upload] sharp not installed — images stored without compression'); }
+
+const compress = (buf, width) => sharp(buf).rotate().resize({ width, height: width, fit: 'inside', withoutEnlargement: true }).webp({ quality: 78 }).toBuffer();
 
 router.post(
   '/upload',
@@ -107,19 +112,17 @@ router.post(
     if (!req.files?.length) throw new HttpError(400, 'No images received');
     const urls = [];
     for (const f of req.files) {
-      const id = `${Date.now().toString(36)}-${crypto.randomBytes(4).toString('hex')}`;
-      if (sharp) {
-        const name = `${id}.webp`;
+      if (ON_VERCEL) {
         // eslint-disable-next-line no-await-in-loop
-        await sharp(f.buffer).rotate().resize({ width: 1400, height: 1400, fit: 'inside', withoutEnlargement: true }).webp({ quality: 80 }).toFile(path.join(uploadDir, name));
-        urls.push(`/uploads/${name}`);
-      } else {
-        const ext = (f.mimetype.split('/')[1] || 'jpg').replace('jpeg', 'jpg');
-        const name = `${id}.${ext}`;
-        // eslint-disable-next-line no-await-in-loop
-        await fs.promises.writeFile(path.join(uploadDir, name), f.buffer);
-        urls.push(`/uploads/${name}`);
+        const out = sharp ? await compress(f.buffer, 1000) : f.buffer;
+        urls.push(`data:${sharp ? 'image/webp' : f.mimetype};base64,${out.toString('base64')}`);
+        continue;
       }
+      const id = `${Date.now().toString(36)}-${crypto.randomBytes(4).toString('hex')}`;
+      const name = `${id}.${sharp ? 'webp' : (f.mimetype.split('/')[1] || 'jpg').replace('jpeg', 'jpg')}`;
+      // eslint-disable-next-line no-await-in-loop
+      await fs.promises.writeFile(path.join(uploadDir, name), sharp ? await compress(f.buffer, 1400) : f.buffer);
+      urls.push(`/uploads/${name}`);
     }
     res.status(201).json({ urls });
   }),

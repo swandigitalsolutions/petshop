@@ -4,6 +4,24 @@ import { api } from '../lib/api.js';
 import { Img, Spinner } from './ui.jsx';
 import { useToast } from './Toast.jsx';
 
+// Resize to at most 1600px and re-encode as JPEG so uploads stay small.
+// Falls back to the original file if the browser can't decode it (e.g. HEIC on some browsers).
+const shrink = (file) => new Promise((resolve) => {
+  const url = URL.createObjectURL(file);
+  const img = new Image();
+  img.onload = () => {
+    const scale = Math.min(1, 1600 / Math.max(img.width, img.height));
+    const c = document.createElement('canvas');
+    c.width = Math.round(img.width * scale);
+    c.height = Math.round(img.height * scale);
+    c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+    URL.revokeObjectURL(url);
+    c.toBlob((b) => resolve(b || file), 'image/jpeg', 0.85);
+  };
+  img.onerror = () => { URL.revokeObjectURL(url); resolve(file); };
+  img.src = url;
+});
+
 // Multi-image uploader: drag & drop or browse, reorder, set cover, remove, or add by URL.
 // Uploaded files are compressed to WebP on the server.
 export default function ImageUploader({ value = [], onChange, max = 10 }) {
@@ -16,16 +34,24 @@ export default function ImageUploader({ value = [], onChange, max = 10 }) {
   const upload = async (files) => {
     const list = [...files].filter((f) => f.type.startsWith('image/')).slice(0, max - value.length);
     if (!list.length) return;
-    const fd = new FormData();
-    list.forEach((f) => fd.append('images', f));
     setBusy(true);
+    const added = [];
     try {
-      const { urls } = await api('/admin/upload', { method: 'POST', body: fd });
-      onChange([...value, ...urls]);
-      toast(`${urls.length} photo${urls.length > 1 ? 's' : ''} uploaded`);
+      // Shrink in the browser first and send one photo per request: phone photos are often
+      // 5–10 MB, and hosted functions (e.g. Vercel) reject request bodies over 4.5 MB.
+      for (const file of list) {
+        const fd = new FormData();
+        // eslint-disable-next-line no-await-in-loop
+        fd.append('images', await shrink(file), file.name.replace(/\.\w+$/, '.jpg'));
+        // eslint-disable-next-line no-await-in-loop
+        const { urls } = await api('/admin/upload', { method: 'POST', body: fd });
+        added.push(...urls);
+      }
+      toast(`${added.length} photo${added.length > 1 ? 's' : ''} uploaded`);
     } catch (e) {
       toast(e.message, { type: 'error' });
     } finally {
+      if (added.length) onChange([...value, ...added]);
       setBusy(false);
     }
   };
