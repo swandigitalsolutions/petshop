@@ -9,7 +9,7 @@
     "admin": {
       "root": "admin",
       "framework": "vite",
-      "buildCommand": "ADMIN_BASE=/admin/ VITE_STORE_URL= npm run build",
+      "buildCommand": "[ -n \"$MONGO_URI\" ] || export VITE_DEMO=true; ADMIN_BASE=/admin/ VITE_STORE_URL= npm run build",
       "outputDirectory": "dist",
       "rewrites": [
         { "source": "/admin", "destination": "/admin/index.html" },
@@ -22,6 +22,7 @@
     "client": {
       "root": "client",
       "framework": "vite",
+      "buildCommand": "[ -n \"$MONGO_URI\" ] || export VITE_DEMO=true; npm run build",
       "outputDirectory": "dist",
       "rewrites": [
         { "source": "/(.*)", "destination": "/index.html" }

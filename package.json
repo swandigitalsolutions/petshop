@@ -10,6 +10,7 @@
     "dev:admin": "npm run dev --prefix admin",
     "seed": "npm run seed --prefix server",
     "build": "npm run build --prefix client && npm run build --prefix admin",
-    "build:demo": "node scripts/build-demo.mjs"
+    "build:demo": "node scripts/build-demo.mjs",
+    "sync:demo": "node scripts/sync-demo.mjs"
   }
 }

@@ -17,7 +17,7 @@ export const DEMO = import.meta.env.VITE_DEMO === 'true';
 export async function api(path, { method = 'GET', body, auth = true, signal } = {}) {
   if (DEMO) {
     // Static demo (e.g. Vercel): the whole backend runs in the browser.
-    const { demoApi } = await import('../../../shared/demo/backend.js');
+    const { demoApi } = await import('../demo/backend.js');
     try {
       return await demoApi(path, { method, body, token: auth ? getToken() : null });
     } catch (e) {

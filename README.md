@@ -29,13 +29,13 @@ The browser apps call the API at `/api` on the same domain, so no service calls 
 
 **Steps**
 
-1. Create a free MongoDB Atlas cluster. Under Network Access allow `0.0.0.0/0`, since Vercel functions don't have fixed IPs, then copy the connection string.
-2. Import the `petshop` repo at [vercel.com/new](https://vercel.com/new) and keep the repo root as the Root Directory.
-3. Add environment variables:
-   - `MONGO_URI`: your Atlas connection string, including a database name, e.g. `…mongodb.net/pawnest`
+1. Import the `petshop` repo at [vercel.com/new](https://vercel.com/new), keep the repo root as the Root Directory, and click **Deploy**. Nothing else is required.
+   - Without a database, the store and admin build in **demo mode**: the backend runs in each visitor's browser with the demo data and real breed photos, and the store and admin share data in the same browser.
+2. *(Optional, for a real shared database.)* Create a free MongoDB Atlas cluster, allow `0.0.0.0/0` under Network Access, and add these environment variables in Vercel:
+   - `MONGO_URI`: e.g. `…mongodb.net/pawnest`
    - `JWT_SECRET`: any long random string
-   - optionally `ADMIN_EMAIL` / `ADMIN_PASSWORD` for the demo admin login
-4. Deploy. On the first API request the server sees an empty database and loads the demo store, with real breed photos linked from the Dog CEO library. That first request takes a few seconds. Alternatively, seed ahead of time from your machine: `MONGO_URI=<atlas uri> npm run seed`.
+
+   Then redeploy. The apps detect `MONGO_URI` at build time and switch to the real API, and the first API request loads the demo data into Atlas.
 
 **Notes for Vercel**
 
