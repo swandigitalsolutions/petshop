@@ -62,7 +62,7 @@ export default function Visit() {
         {done.type === 'kennel_visit' && <p className="mt-4 rounded-2xl bg-mist p-4 text-sm"><MapPin className="mr-1 inline size-4" />{settings?.contact?.address}</p>}
         <div className="mt-8 flex justify-center gap-3">
           <Link to="/puppies" className="btn btn-dark">Keep browsing</Link>
-          {user && <Link to="/account/visits" className="btn btn-outline">My visits</Link>}
+          
         </div>
       </div>
     );

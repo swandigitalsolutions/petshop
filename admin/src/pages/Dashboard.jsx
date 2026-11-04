@@ -19,12 +19,12 @@ function RevenueChart({ series = [] }) {
     <div className="card p-5">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <div>
-          <h2 className="text-lg font-bold">Reservations booked, last 30 days</h2>
-          <p className="text-sm text-ink-soft">{money(total)} across {series.reduce((s, d) => s + d.orders, 0)} reservations</p>
+          <h2 className="text-lg font-bold">Sales, last 30 days</h2>
+          <p className="text-sm text-ink-soft">{money(total)} across {series.reduce((s, d) => s + d.orders, 0)}  orders</p>
         </div>
         <p className="text-sm tabular-nums text-ink-soft">{h ? <><span className="font-semibold text-ink">{money(h.revenue)}</span> on {formatDate(h.date, { day: 'numeric', month: 'short' })} ({h.orders})</> : 'Tap a bar for details'}</p>
       </div>
-      <svg viewBox={`0 0 ${W} ${H}`} className="mt-4 w-full" role="img" aria-label="Daily reservation value for the last 30 days" onMouseLeave={() => setHover(null)}>
+      <svg viewBox={`0 0 ${W} ${H}`} className="mt-4 w-full" role="img" aria-label="Daily sales for the last 30 days" onMouseLeave={() => setHover(null)}>
         {[0.25, 0.5, 0.75, 1].map((f) => <line key={f} x1={pad.l} x2={W - pad.r} y1={y(max * f)} y2={y(max * f)} stroke="var(--color-line)" strokeDasharray="3 4" />)}
         {series.map((d, i) => {
           const x = pad.l + i * bw;
@@ -58,7 +58,7 @@ export default function Dashboard() {
       />
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <Stat label="Money collected" value={money(s.collected)} sub={`${money(s.balanceDue)} balance due at handover`} />
-        <Stat label="Active reservations" value={s.activeReservations} sub={`${s.completed} puppies handed over so far`} />
+        <Stat label="Open orders" value={s.activeReservations} sub={`${s.completed} puppies delivered so far`} />
         <Stat label="Puppies available" value={av.count} sub={`${money(av.value)} listed value, ${s.pets?.reserved?.count || 0} reserved`} />
         <Stat label="Margin on completed sales" value={money(s.margin)} sub={`Average puppy price ${money(s.avgPrice)}`} />
       </div>
@@ -66,7 +66,7 @@ export default function Dashboard() {
       <div className="mt-6 grid gap-6 xl:grid-cols-[1.6fr_1fr]">
         <RevenueChart series={s.series} />
         <div className="card p-5">
-          <h2 className="text-lg font-bold">Reservation pipeline</h2>
+          <h2 className="text-lg font-bold">Order pipeline</h2>
           <div className="mt-4 space-y-3">
             {flow.map((k) => (
               <Link key={k} to={`/reservations?status=${k}`} className="flex items-center justify-between rounded-xl bg-mist px-4 py-3 hover:bg-line/60">
@@ -125,10 +125,10 @@ export default function Dashboard() {
       </div>
 
       <div className="card mt-6 overflow-hidden">
-        <div className="flex items-center justify-between px-5 py-4"><h2 className="text-lg font-bold">Latest reservations</h2><Link to="/reservations" className="text-sm font-semibold underline">View all</Link></div>
+        <div className="flex items-center justify-between px-5 py-4"><h2 className="text-lg font-bold">Latest orders</h2><Link to="/reservations" className="text-sm font-semibold underline">View all</Link></div>
         <div className="overflow-x-auto">
           <table className="w-full min-w-[720px] text-sm">
-            <thead className="border-y border-line bg-mist/60"><tr><th className="th">Reservation</th><th className="th">Puppy</th><th className="th">Customer</th><th className="th">Total</th><th className="th">Paid</th><th className="th">Status</th></tr></thead>
+            <thead className="border-y border-line bg-mist/60"><tr><th className="th">Order</th><th className="th">Puppy</th><th className="th">Customer</th><th className="th">Total</th><th className="th">Paid</th><th className="th">Status</th></tr></thead>
             <tbody className="divide-y divide-line">
               {s.recent.map((o) => (
                 <tr key={o._id} className="hover:bg-mist/50">

@@ -1,4 +1,4 @@
-import { lazy, Suspense } from 'react';
+import { lazy } from 'react';
 import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import Layout from './components/Layout.jsx';
 import Home from './pages/Home.jsx';
@@ -9,10 +9,9 @@ import { Spinner } from './components/ui.jsx';
 const Puppies = lazy(() => import('./pages/Puppies.jsx'));
 const PuppyDetail = lazy(() => import('./pages/PuppyDetail.jsx'));
 const Breeds = lazy(() => import('./pages/Breeds.jsx'));
-const BreedDetail = lazy(() => import('./pages/BreedDetail.jsx'));
-const Compare = lazy(() => import('./pages/Compare.jsx'));
-const Reserve = lazy(() => import('./pages/Reserve.jsx'));
-const ReservationDone = lazy(() => import('./pages/ReservationDone.jsx'));
+const Cart = lazy(() => import('./pages/Cart.jsx'));
+const Checkout = lazy(() => import('./pages/Checkout.jsx'));
+const OrderSuccess = lazy(() => import('./pages/OrderSuccess.jsx'));
 const Visit = lazy(() => import('./pages/Visit.jsx'));
 const Auth = lazy(() => import('./pages/Auth.jsx'));
 const Account = lazy(() => import('./pages/Account.jsx'));
@@ -33,30 +32,30 @@ function Protected({ children }) {
 
 export default function App() {
   return (
-    <Suspense fallback={<PageLoader />}>
-      <Routes>
-        <Route element={<Layout />}>
-          <Route index element={<Home />} />
-          <Route path="puppies" element={<Puppies />} />
-          <Route path="adopt" element={<Puppies adopt />} />
-          <Route path="puppies/:slug" element={<PuppyDetail />} />
-          <Route path="breeds" element={<Breeds />} />
-          <Route path="breeds/:slug" element={<BreedDetail />} />
-          <Route path="compare" element={<Compare />} />
-          <Route path="reserve/:slug" element={<Protected><Reserve /></Protected>} />
-          <Route path="reservation/:id" element={<Protected><ReservationDone /></Protected>} />
-          <Route path="visit" element={<Visit />} />
-          <Route path="login" element={<Auth mode="login" />} />
-          <Route path="register" element={<Auth mode="register" />} />
-          <Route path="account/*" element={<Protected><Account /></Protected>} />
-          <Route path="stories" element={<Stories />} />
-          <Route path="about" element={<Info page="about" />} />
-          <Route path="contact" element={<Info page="contact" />} />
-          <Route path="faq" element={<Info page="faq" />} />
-          <Route path="policies" element={<Info page="policies" />} />
-          <Route path="*" element={<Info page="404" />} />
-        </Route>
-      </Routes>
-    </Suspense>
+    <Routes>
+      <Route element={<Layout fallback={<PageLoader />} />}>
+        <Route index element={<Home />} />
+        <Route path="shop" element={<Puppies />} />
+        <Route path="puppies" element={<Puppies />} />
+        <Route path="search" element={<Puppies />} />
+        <Route path="adopt" element={<Puppies adopt />} />
+        <Route path="puppies/:slug" element={<PuppyDetail />} />
+        <Route path="breeds" element={<Breeds />} />
+        <Route path="breeds/:slug" element={<Navigate to="/breeds" replace />} />
+        <Route path="cart" element={<Cart />} />
+        <Route path="checkout" element={<Protected><Checkout /></Protected>} />
+        <Route path="order/:id" element={<Protected><OrderSuccess /></Protected>} />
+        <Route path="visit" element={<Visit />} />
+        <Route path="login" element={<Auth mode="login" />} />
+        <Route path="register" element={<Auth mode="register" />} />
+        <Route path="account/*" element={<Protected><Account /></Protected>} />
+        <Route path="stories" element={<Stories />} />
+        <Route path="about" element={<Info page="about" />} />
+        <Route path="contact" element={<Info page="contact" />} />
+        <Route path="faq" element={<Info page="faq" />} />
+        <Route path="policies" element={<Info page="policies" />} />
+        <Route path="*" element={<Info page="404" />} />
+      </Route>
+    </Routes>
   );
 }

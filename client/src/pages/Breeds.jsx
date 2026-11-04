@@ -20,7 +20,7 @@ export default function Breeds() {
   const test = FILTERS.find((x) => x[0] === f)[2];
   const list = data.filter(test);
   return (
-    <div className="wrap py-8">
+    <div className="wrap py-6">
       <Crumbs items={[{ label: 'Home', to: '/' }, { label: 'Breed guide' }]} />
       <h1 className="text-4xl font-extrabold sm:text-5xl">Which breed fits your home?</h1>
       <p className="mt-3 max-w-2xl text-lg text-ink-soft">Honest notes on size, energy, grooming and how each breed copes with Bengaluru weather. Not sure? Book a free breed consultation with our team.</p>
@@ -29,7 +29,7 @@ export default function Breeds() {
       </div>
       <div className="mt-8 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
         {isLoading ? <CardSkeleton count={6} /> : list.map((b) => (
-          <Link key={b._id} to={`/breeds/${b.slug}`} className="group panel overflow-hidden">
+          <Link key={b._id} to={`/shop?breed=${encodeURIComponent(b.name)}`} className="group panel overflow-hidden">
             <div className="aspect-[16/11] overflow-hidden bg-mist">
               <Img src={b.image} alt={`${b.name} dog`} width={640} className="size-full object-cover group-hover:scale-[1.04]" />
             </div>

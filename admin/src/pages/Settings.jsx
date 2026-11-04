@@ -26,7 +26,7 @@ export default function Settings() {
   const set = (k, v) => setF((p) => ({ ...p, [k]: v }));
   const setIn = (o, k, v) => setF((p) => ({ ...p, [o]: { ...p[o], [k]: v } }));
   const resetDemo = async () => {
-    if (!window.confirm('Reset all demo data (puppies, reservations, visits, customers) back to the original demo?')) return;
+    if (!window.confirm('Reset all demo data (puppies, orders, visits, customers) back to the original demo?')) return;
     await api('/admin/demo-reset', { method: 'POST', body: {} });
     window.location.reload();
   };
@@ -48,7 +48,7 @@ export default function Settings() {
   };
   return (
     <form onSubmit={save}>
-      <PageHead title="Store settings" sub="Homepage text, reservation rules and contact details." actions={<>{DEMO && <button type="button" onClick={resetDemo} className="btn btn-outline">Reset demo data</button>}<button className="btn btn-dark" disabled={busy}>{busy ? <Spinner /> : 'Save settings'}</button></>} />
+      <PageHead title="Store settings" sub="Homepage text, delivery and contact details." actions={<>{DEMO && <button type="button" onClick={resetDemo} className="btn btn-outline">Reset demo data</button>}<button className="btn btn-dark" disabled={busy}>{busy ? <Spinner /> : 'Save settings'}</button></>} />
       <div className="grid gap-6 xl:grid-cols-2">
         <Section title="Homepage">
           <Field label="Announcement bar"><input className="input" value={f.announcement || ''} onChange={(e) => set('announcement', e.target.value)} /></Field>
@@ -57,7 +57,7 @@ export default function Settings() {
           <div><p className="label">Fallback hero photo (shown when no puppy is featured)</p><ImageUploader max={1} value={f.heroImage ? [f.heroImage] : []} onChange={(v) => set('heroImage', v[0] || '')} /></div>
         </Section>
         <div className="space-y-6">
-          <Section title="Reservations & delivery">
+          <Section title="Delivery">
             <div className="grid gap-4 sm:grid-cols-2">
               <Field label="Deposit (% of price)"><input type="number" min="0" max="100" className="input" value={f.depositPercent} onChange={(e) => set('depositPercent', e.target.value)} /></Field>
               <Field label="Minimum deposit (₹)"><input type="number" min="0" className="input" value={f.minDeposit} onChange={(e) => set('minDeposit', e.target.value)} /></Field>

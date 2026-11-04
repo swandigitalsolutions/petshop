@@ -7,7 +7,7 @@ import { PageHead, Badge, Img, Pager, Tabs, Empty, Drawer, Field, Spinner, useDe
 import { useToast } from '../components/Toast.jsx';
 
 const FLOW = ['placed', 'confirmed', 'vet_check', 'ready', 'completed'];
-const NEXT_LABEL = { placed: 'Confirm reservation', confirmed: 'Mark vet check done', vet_check: 'Mark ready to go home', ready: 'Complete handover' };
+const NEXT_LABEL = { placed: 'Confirm order', confirmed: 'Mark health check done', vet_check: 'Send out for delivery', ready: 'Mark delivered' };
 
 function Detail({ id, onClose }) {
   const qc = useQueryClient();
@@ -31,21 +31,21 @@ function Detail({ id, onClose }) {
     } catch (e) { toast(e.message, { type: 'error' }); } finally { setBusy(''); }
   };
 
-  if (isLoading || !o) return <Drawer title="Reservation" onClose={onClose} wide><div className="skeleton h-64" /></Drawer>;
+  if (isLoading || !o) return <Drawer title="Order" onClose={onClose} wide><div className="skeleton h-64" /></Drawer>;
   const idx = FLOW.indexOf(o.status);
   const next = FLOW[idx + 1];
   const wa = o.customer?.phone?.replace(/\D/g, '');
 
   return (
     <Drawer
-      title={`Reservation ${o.orderNo}`}
+      title={`Order ${o.orderNo}`}
       onClose={onClose}
       wide
       footer={
         <>
           {!['completed', 'cancelled'].includes(o.status) && (
-            <button type="button" className="btn btn-danger mr-auto" disabled={!!busy} onClick={() => window.confirm('Cancel this reservation? The puppy goes back on sale and any payment is marked refunded.') && update({ status: 'cancelled', note: note || 'Cancelled by store' }, 'Reservation cancelled', 'cancel')}>
-              Cancel reservation
+            <button type="button" className="btn btn-danger mr-auto" disabled={!!busy} onClick={() => window.confirm('Cancel this order? The puppy goes back on sale and any payment is marked refunded.') && update({ status: 'cancelled', note: note || 'Cancelled by store' }, 'Order cancelled', 'cancel')}>
+              Cancel order
             </button>
           )}
           {next && <button type="button" className="btn btn-dark" disabled={!!busy} onClick={() => update({ status: next, note: note || undefined }, `Moved to ${STATUS[next][0]}`, 'next')}>{busy === 'next' ? <Spinner /> : NEXT_LABEL[o.status]}</button>}
@@ -133,13 +133,13 @@ export default function Reservations() {
 
   return (
     <>
-      <PageHead title="Reservations" sub="Every puppy reservation from deposit to handover." />
+      <PageHead title="Orders" sub="Every puppy order, from payment to delivery." />
       <div className="card overflow-hidden">
         <div className="flex flex-wrap items-center gap-3 border-b border-line p-4">
           <Tabs value={status} onChange={(v) => { setParam('status', v); setPage(1); }} items={[['', 'All'], ...Object.entries(STATUS).map(([k, [l]]) => [k, l, c[k] || 0])]} />
           <div className="relative ml-auto w-full max-w-xs">
             <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-ink-soft" />
-            <input value={q} onChange={(e) => { setQ(e.target.value); setPage(1); }} placeholder="Reservation no., customer, phone, puppy" className="input pl-9" />
+            <input value={q} onChange={(e) => { setQ(e.target.value); setPage(1); }} placeholder="Order no., customer, phone, puppy" className="input pl-9" />
           </div>
         </div>
         <ul className="divide-y divide-line md:hidden">
@@ -159,7 +159,7 @@ export default function Reservations() {
         </ul>
         <div className="hidden overflow-x-auto md:block">
           <table className="w-full min-w-[960px] text-sm">
-            <thead className="border-b border-line bg-mist/60"><tr><th className="th">Reservation</th><th className="th">Puppy</th><th className="th">Customer</th><th className="th">Handover</th><th className="th">Total</th><th className="th">Balance</th><th className="th">Payment</th><th className="th">Status</th></tr></thead>
+            <thead className="border-b border-line bg-mist/60"><tr><th className="th">Order</th><th className="th">Puppy</th><th className="th">Customer</th><th className="th">Delivery</th><th className="th">Total</th><th className="th">Balance</th><th className="th">Payment</th><th className="th">Status</th></tr></thead>
             <tbody className="divide-y divide-line">
               {isLoading && Array.from({ length: 6 }, (_, i) => <tr key={i}><td colSpan={8} className="td"><div className="skeleton h-10" /></td></tr>)}
               {data?.items?.map((o) => (
@@ -176,7 +176,7 @@ export default function Reservations() {
               ))}
             </tbody>
           </table>
-          {!isLoading && !data?.items?.length && <Empty title="No reservations here" text="New reservations from the store will appear instantly." />}
+          {!isLoading && !data?.items?.length && <Empty title="No orders here" text="New orders from the store appear here instantly." />}
         </div>
         <Pager page={page} pages={data?.pages} onChange={setPage} />
       </div>

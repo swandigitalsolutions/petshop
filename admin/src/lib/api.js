@@ -81,11 +81,11 @@ export const formatDate = (d, opts = { day: 'numeric', month: 'short', year: 'nu
   d ? new Intl.DateTimeFormat('en-IN', opts).format(new Date(d)) : '';
 
 export const STATUS = {
-  placed: ['Placed', 'bg-sky text-ink'],
+  placed: ['New order', 'bg-sky text-ink'],
   confirmed: ['Confirmed', 'bg-iris-soft text-iris'],
-  vet_check: ['Vet check', 'bg-yolk-soft text-ink'],
-  ready: ['Ready to go home', 'bg-yolk text-ink'],
-  completed: ['Completed', 'bg-leaf-soft text-leaf'],
+  vet_check: ['Health check done', 'bg-yolk-soft text-ink'],
+  ready: ['Out for delivery', 'bg-yolk text-ink'],
+  completed: ['Delivered', 'bg-leaf-soft text-leaf'],
   cancelled: ['Cancelled', 'bg-coral-soft text-coral'],
 };
 export const PET_STATUS = {
@@ -95,8 +95,8 @@ export const PET_STATUS = {
   hidden: ['Hidden', 'bg-coral-soft text-coral'],
 };
 export const PAY_STATUS = {
-  pending: ['Unpaid', 'bg-coral-soft text-coral'],
-  partially_paid: ['Deposit paid', 'bg-yolk-soft text-ink'],
+  pending: ['Pay on delivery', 'bg-coral-soft text-coral'],
+  partially_paid: ['Part paid', 'bg-yolk-soft text-ink'],
   paid: ['Paid', 'bg-leaf-soft text-leaf'],
   refunded: ['Refunded', 'bg-mist text-ink-soft'],
 };

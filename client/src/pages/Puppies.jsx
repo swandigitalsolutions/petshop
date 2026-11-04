@@ -1,27 +1,42 @@
 import { useMemo, useState } from 'react';
 import { useSearchParams, Link } from 'react-router-dom';
-import { SlidersHorizontal, X, Dog } from 'lucide-react';
-import { usePets } from '../lib/queries.js';
-import { PetCard } from '../components/Cards.jsx';
-import { CardSkeleton, Empty, Pagination, Crumbs } from '../components/ui.jsx';
-import { money } from '../lib/api.js';
+import { SlidersHorizontal, X, ArrowUpDown, Dog } from 'lucide-react';
+import { usePets, useBreeds } from '../lib/queries.js';
+import { ProductCard, CardSkeleton } from '../components/Cards.jsx';
+import { Empty, Pagination, Crumbs, RatingChip } from '../components/ui.jsx';
 
+const SORTS = [['popular', 'Popularity'], ['price-asc', 'Price: Low to High'], ['price-desc', 'Price: High to Low'], ['newest', 'Newest first'], ['rating', 'Customer rating'], ['discount', 'Discount']];
+const PRICES = [['', '25000', 'Under ₹25,000'], ['25000', '40000', '₹25,000 – ₹40,000'], ['40000', '60000', '₹40,000 – ₹60,000'], ['60000', '', 'Over ₹60,000']];
 const SIZES = [['toy', 'Toy'], ['small', 'Small'], ['medium', 'Medium'], ['large', 'Large'], ['giant', 'Giant']];
-const GOOD_WITH = [['apartments', 'Apartments'], ['kids', 'Kids'], ['first-time owners', 'First-time owners'], ['seniors', 'Seniors'], ['other dogs', 'Other dogs'], ['cats', 'Cats']];
-const AGES = [['', 'Any age'], ['10', 'Up to 10 weeks'], ['13', 'Up to 3 months'], ['20', 'Up to 5 months']];
-const PRICES = [['', '', 'Any price'], ['', '25000', 'Under ₹25,000'], ['25000', '40000', '₹25,000 – ₹40,000'], ['40000', '60000', '₹40,000 – ₹60,000'], ['60000', '', 'Above ₹60,000']];
-const SORTS = [['newest', 'Newest first'], ['price-asc', 'Price: low to high'], ['price-desc', 'Price: high to low'], ['youngest', 'Youngest first'], ['popular', 'Most viewed']];
+const GOOD = [['apartments', 'Apartments'], ['kids', 'Kids'], ['first-time owners', 'First-time owners'], ['seniors', 'Seniors'], ['other dogs', 'Other dogs']];
+
+function Group({ title, children }) {
+  return (
+    <fieldset className="border-b border-line px-4 py-4 last:border-0">
+      <legend className="float-left mb-2 w-full text-xs font-bold tracking-wide text-ink-soft">{title}</legend>
+      <div className="clear-both space-y-1.5">{children}</div>
+    </fieldset>
+  );
+}
+const Check = ({ checked, onChange, children }) => (
+  <label className="flex cursor-pointer items-center gap-2.5 text-sm">
+    <input type="checkbox" className="size-4 accent-ink" checked={checked} onChange={onChange} />
+    <span className="flex-1">{children}</span>
+  </label>
+);
 
 export default function Puppies({ adopt = false }) {
   const [sp, setSp] = useSearchParams();
-  const [drawer, setDrawer] = useState(false);
+  const [sheet, setSheet] = useState(null); // 'filter' | 'sort' on mobile
+  const [breedQ, setBreedQ] = useState('');
   const get = (k) => sp.get(k) || '';
   const list = (k) => (get(k) ? get(k).split(',') : []);
+  const { data: allBreeds = [] } = useBreeds();
 
   const params = useMemo(() => ({
     breed: get('breed'), gender: get('gender'), size: get('size'), goodWith: get('goodWith'), ageMax: get('ageMax'),
-    minPrice: get('minPrice'), maxPrice: get('maxPrice'), kci: get('kci'), q: get('q'), sort: get('sort') || 'newest',
-    page: get('page') || 1, limit: 12, adoption: adopt ? 'true' : get('adoption'),
+    minPrice: get('minPrice'), maxPrice: get('maxPrice'), kci: get('kci'), q: get('q'), deals: get('deals'), minRating: get('minRating'),
+    sort: get('sort') || 'popular', page: get('page') || 1, limit: 16, adoption: adopt ? 'true' : 'false',
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }), [sp, adopt]);
   const { data, isLoading, isFetching } = usePets(params);
@@ -32,151 +47,139 @@ export default function Puppies({ adopt = false }) {
     if (!('page' in patch)) next.delete('page');
     setSp(next, { replace: true });
   };
-  const toggleIn = (k, v) => {
-    const cur = list(k);
-    set({ [k]: (cur.includes(v) ? cur.filter((x) => x !== v) : [...cur, v]).join(',') });
-  };
-  const activeCount = ['breed', 'gender', 'size', 'goodWith', 'ageMax', 'minPrice', 'maxPrice', 'kci', 'q'].filter((k) => get(k)).length;
+  const toggle = (k, v) => { const cur = list(k); set({ [k]: (cur.includes(v) ? cur.filter((x) => x !== v) : [...cur, v]).join(',') }); };
+  const FILTER_KEYS = ['breed', 'gender', 'size', 'goodWith', 'ageMax', 'minPrice', 'maxPrice', 'kci', 'q', 'deals', 'minRating'];
+  const active = FILTER_KEYS.filter((k) => get(k)).length;
   const clearAll = () => setSp(get('sort') ? { sort: get('sort') } : {}, { replace: true });
 
-  const breeds = data?.facets?.breeds || [];
+  const breedCounts = Object.fromEntries((data?.facets?.breeds || []).map((b) => [b._id, b.count]));
+  const breeds = allBreeds.filter((b) => !b.name.startsWith('Indie') && b.name.toLowerCase().includes(breedQ.toLowerCase()));
+  const oneBreed = get('breed') && !get('breed').includes(',') ? allBreeds.find((b) => b.name === get('breed')) : null;
+  const title = adopt ? 'Adopt a rescued Indie' : get('q') ? `Results for "${get('q')}"` : oneBreed ? `${oneBreed.name} puppies` : get('deals') ? 'Deals on puppies' : 'Puppies for sale';
 
   const filters = (
-    <div className="space-y-8">
+    <div>
       {!adopt && (
-        <fieldset>
-          <legend className="mb-3 font-display text-lg font-bold">Breed</legend>
-          <div className="space-y-1">
-            {breeds.filter((b) => !b._id.startsWith('Indie')).map((b) => (
-              <label key={b._id} className="flex cursor-pointer items-center gap-3 rounded-xl px-2 py-1.5 hover:bg-mist">
-                <input type="checkbox" className="size-4 accent-ink" checked={list('breed').includes(b._id)} onChange={() => toggleIn('breed', b._id)} />
-                <span className="flex-1 text-[15px]">{b._id}</span>
-                <span className="text-xs text-ink-soft">{b.count}</span>
-              </label>
-            ))}
+        <Group title="BREED">
+          <input value={breedQ} onChange={(e) => setBreedQ(e.target.value)} placeholder="Search breed" className="input mb-2 py-2 text-sm" />
+          <div className="max-h-64 space-y-1.5 overflow-y-auto pr-1">
+            {breeds.map((b) => <Check key={b._id} checked={list('breed').includes(b.name)} onChange={() => toggle('breed', b.name)}>{b.name} <span className="text-ink-soft">({breedCounts[b.name] ?? b.count ?? 0})</span></Check>)}
           </div>
-        </fieldset>
+        </Group>
       )}
-      <fieldset>
-        <legend className="mb-3 font-display text-lg font-bold">Boy or girl</legend>
-        <div className="flex gap-2">
-          {[['', 'Either'], ['male', 'Boy'], ['female', 'Girl']].map(([v, l]) => (
-            <button type="button" key={l} onClick={() => set({ gender: v })} className={`chip ${get('gender') === v ? 'chip-on' : ''}`}>{l}</button>
-          ))}
-        </div>
-      </fieldset>
-      <fieldset>
-        <legend className="mb-3 font-display text-lg font-bold">Good with</legend>
-        <div className="flex flex-wrap gap-2">
-          {GOOD_WITH.map(([v, l]) => (
-            <button type="button" key={v} onClick={() => toggleIn('goodWith', v)} className={`chip ${list('goodWith').includes(v) ? 'chip-on' : ''}`}>{l}</button>
-          ))}
-        </div>
-      </fieldset>
-      <fieldset>
-        <legend className="mb-3 font-display text-lg font-bold">Adult size</legend>
-        <div className="flex flex-wrap gap-2">
-          {SIZES.map(([v, l]) => (
-            <button type="button" key={v} onClick={() => toggleIn('size', v)} className={`chip ${list('size').includes(v) ? 'chip-on' : ''}`}>{l}</button>
-          ))}
-        </div>
-      </fieldset>
       {!adopt && (
-        <fieldset>
-          <legend className="mb-3 font-display text-lg font-bold">Price</legend>
-          <div className="space-y-1">
-            {PRICES.map(([min, max, l]) => (
-              <label key={l} className="flex cursor-pointer items-center gap-3 rounded-xl px-2 py-1.5 hover:bg-mist">
-                <input type="radio" name="price" className="size-4 accent-ink" checked={get('minPrice') === min && get('maxPrice') === max} onChange={() => set({ minPrice: min, maxPrice: max })} />
-                <span className="text-[15px]">{l}</span>
-              </label>
-            ))}
-          </div>
-        </fieldset>
+        <Group title="PRICE">
+          {PRICES.map(([min, max, l]) => (
+            <label key={l} className="flex cursor-pointer items-center gap-2.5 text-sm">
+              <input type="radio" name="price" className="size-4 accent-ink" checked={get('minPrice') === min && get('maxPrice') === max} onChange={() => set({ minPrice: min, maxPrice: max })} />{l}
+            </label>
+          ))}
+          {(get('minPrice') || get('maxPrice')) && <button type="button" onClick={() => set({ minPrice: '', maxPrice: '' })} className="text-xs font-semibold text-ink-soft underline">Clear price</button>}
+        </Group>
       )}
-      <fieldset>
-        <legend className="mb-3 font-display text-lg font-bold">Age</legend>
-        <select className="input" value={get('ageMax')} onChange={(e) => set({ ageMax: e.target.value })} aria-label="Age">
-          {AGES.map(([v, l]) => <option key={l} value={v}>{l}</option>)}
-        </select>
-      </fieldset>
-      {!adopt && (
-        <label className="flex cursor-pointer items-center gap-3">
-          <input type="checkbox" className="size-4 accent-ink" checked={get('kci') === 'true'} onChange={(e) => set({ kci: e.target.checked ? 'true' : '' })} />
-          <span className="text-[15px] font-semibold">KCI registered only</span>
-        </label>
-      )}
+      <Group title="CUSTOMER RATINGS">
+        {['4', '3'].map((r) => (
+          <label key={r} className="flex cursor-pointer items-center gap-2.5 text-sm">
+            <input type="radio" name="rating" className="size-4 accent-ink" checked={get('minRating') === r} onChange={() => set({ minRating: r })} /><RatingChip value={Number(r)} small /> & above
+          </label>
+        ))}
+      </Group>
+      {!adopt && <Group title="OFFERS"><Check checked={get('deals') === 'true'} onChange={(e) => set({ deals: e.target.checked ? 'true' : '' })}>On discount</Check><Check checked={get('kci') === 'true'} onChange={(e) => set({ kci: e.target.checked ? 'true' : '' })}>KCI registered</Check></Group>}
+      <Group title="GENDER">
+        {[['male', 'Male'], ['female', 'Female']].map(([v, l]) => <Check key={v} checked={get('gender') === v} onChange={() => set({ gender: get('gender') === v ? '' : v })}>{l}</Check>)}
+      </Group>
+      <Group title="ADULT SIZE">{SIZES.map(([v, l]) => <Check key={v} checked={list('size').includes(v)} onChange={() => toggle('size', v)}>{l}</Check>)}</Group>
+      <Group title="GOOD WITH">{GOOD.map(([v, l]) => <Check key={v} checked={list('goodWith').includes(v)} onChange={() => toggle('goodWith', v)}>{l}</Check>)}</Group>
+      <Group title="AGE">
+        {[['10', 'Up to 10 weeks'], ['13', 'Up to 3 months'], ['20', 'Up to 5 months']].map(([v, l]) => (
+          <label key={v} className="flex cursor-pointer items-center gap-2.5 text-sm"><input type="radio" name="age" className="size-4 accent-ink" checked={get('ageMax') === v} onChange={() => set({ ageMax: v })} />{l}</label>
+        ))}
+      </Group>
     </div>
   );
 
-  const title = adopt ? 'Adopt a rescued Indie' : get('breed') && !get('breed').includes(',') ? `${get('breed')} puppies` : 'Puppies for sale';
+  const chips = [
+    ...list('breed').map((b) => [b, () => toggle('breed', b)]),
+    ...(get('q') ? [[`"${get('q')}"`, () => set({ q: '' })]] : []),
+    ...(get('minPrice') || get('maxPrice') ? [[PRICES.find(([a, b]) => a === get('minPrice') && b === get('maxPrice'))?.[2] || 'Price', () => set({ minPrice: '', maxPrice: '' })]] : []),
+    ...(get('minRating') ? [[`${get('minRating')}★ & above`, () => set({ minRating: '' })]] : []),
+    ...(get('deals') ? [['On discount', () => set({ deals: '' })]] : []),
+    ...(get('kci') ? [['KCI registered', () => set({ kci: '' })]] : []),
+    ...(get('gender') ? [[get('gender') === 'male' ? 'Male' : 'Female', () => set({ gender: '' })]] : []),
+    ...list('size').map((v) => [`${v} size`, () => toggle('size', v)]),
+    ...list('goodWith').map((v) => [`Good with ${v}`, () => toggle('goodWith', v)]),
+    ...(get('ageMax') ? [[`Up to ${get('ageMax')} weeks`, () => set({ ageMax: '' })]] : []),
+  ];
 
   return (
-    <div className="wrap py-8">
-      <Crumbs items={[{ label: 'Home', to: '/' }, { label: adopt ? 'Adopt' : 'Puppies' }]} />
-      <div className="flex flex-wrap items-end justify-between gap-4">
-        <div>
-          <h1 className="text-4xl font-extrabold sm:text-5xl">{title}</h1>
-          <p className="mt-2 text-ink-soft">
-            {adopt
-              ? 'Free adoption with a home check. Every rescue is vaccinated, dewormed and vet-checked.'
-              : data ? `${data.total} ${data.total === 1 ? 'puppy' : 'puppies'}${data.facets?.priceRange?.min ? `, from ${money(data.facets.priceRange.min)}` : ''}` : 'Loading puppies…'}
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <button type="button" className="btn btn-outline btn-sm lg:hidden" onClick={() => setDrawer(true)}>
-            <SlidersHorizontal className="size-4" /> Filters{activeCount ? ` (${activeCount})` : ''}
-          </button>
-          <label className="sr-only" htmlFor="sort">Sort by</label>
-          <select id="sort" className="input w-auto rounded-full py-2 text-sm" value={get('sort') || 'newest'} onChange={(e) => set({ sort: e.target.value })}>
-            {SORTS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-          </select>
-        </div>
-      </div>
+    <div className="wrap py-4">
+      <Crumbs items={[{ label: 'Home', to: '/' }, { label: adopt ? 'Adopt' : 'Puppies', to: oneBreed ? '/shop' : undefined }, ...(oneBreed ? [{ label: oneBreed.name }] : [])]} />
+      <div className="grid gap-4 lg:grid-cols-[260px_1fr]">
+        <aside className="hidden self-start rounded-2xl bg-white lg:sticky lg:top-36 lg:block lg:max-h-[calc(100vh-10rem)] lg:overflow-y-auto">
+          <div className="flex items-center justify-between border-b border-line px-4 py-3"><h2 className="text-lg font-bold">Filters</h2>{active > 0 && <button type="button" onClick={clearAll} className="text-sm font-semibold text-coral">Clear all</button>}</div>
+          {filters}
+        </aside>
 
-      {activeCount > 0 && (
-        <div className="mt-5 flex flex-wrap items-center gap-2">
-          {get('q') && <button type="button" onClick={() => set({ q: '' })} className="chip chip-on">"{get('q')}" <X className="size-3.5" /></button>}
-          {list('breed').map((b) => <button type="button" key={b} onClick={() => toggleIn('breed', b)} className="chip chip-on">{b} <X className="size-3.5" /></button>)}
-          {list('goodWith').map((b) => <button type="button" key={b} onClick={() => toggleIn('goodWith', b)} className="chip chip-on">Good with {b} <X className="size-3.5" /></button>)}
-          {list('size').map((b) => <button type="button" key={b} onClick={() => toggleIn('size', b)} className="chip chip-on">{b} <X className="size-3.5" /></button>)}
-          {get('gender') && <button type="button" onClick={() => set({ gender: '' })} className="chip chip-on">{get('gender') === 'male' ? 'Boys' : 'Girls'} <X className="size-3.5" /></button>}
-          <button type="button" onClick={clearAll} className="px-2 text-sm font-semibold underline">Clear all</button>
-        </div>
-      )}
+        <div className="min-w-0">
+          <div className="rounded-2xl bg-white p-4">
+            <div className="flex flex-wrap items-end justify-between gap-3">
+              <div>
+                <h1 className="text-2xl font-bold sm:text-3xl">{title}</h1>
+                <p className="mt-0.5 text-sm text-ink-soft">{data ? `Showing ${data.items.length ? (data.page - 1) * params.limit + 1 : 0}–${(data.page - 1) * params.limit + data.items.length} of ${data.total} puppies` : 'Loading…'}</p>
+              </div>
+              <div className="hidden items-center gap-1 lg:flex">
+                <span className="mr-1 text-sm font-semibold">Sort by</span>
+                {SORTS.map(([v, l]) => <button type="button" key={v} onClick={() => set({ sort: v })} className={`rounded-lg px-2.5 py-1.5 text-sm ${(get('sort') || 'popular') === v ? 'bg-ink font-semibold text-white' : 'text-ink-2 hover:bg-mist'}`}>{l}</button>)}
+              </div>
+            </div>
+            {oneBreed?.summary && <p className="mt-3 rounded-xl bg-yolk-soft px-3 py-2 text-sm">{oneBreed.summary} <Link to="/breeds" className="font-semibold underline">Breed guide</Link></p>}
+            {chips.length > 0 && (
+              <div className="mt-3 flex flex-wrap gap-2">
+                {chips.map(([l, fn]) => <button type="button" key={l} onClick={fn} className="chip capitalize">{l}<X className="size-3.5" /></button>)}
+                <button type="button" onClick={clearAll} className="px-1 text-sm font-semibold text-coral">Clear all</button>
+              </div>
+            )}
+          </div>
 
-      <div className="mt-8 grid gap-10 lg:grid-cols-[260px_1fr]">
-        <aside className="hidden lg:block">{filters}</aside>
-        <div className={isFetching && !isLoading ? 'opacity-60 transition-opacity' : ''}>
+          <div className="sticky top-[118px] z-30 mt-3 grid grid-cols-2 overflow-hidden rounded-xl border border-line bg-white text-sm font-semibold sm:top-[132px] md:top-[108px] lg:hidden">
+            <button type="button" onClick={() => setSheet('sort')} className="flex items-center justify-center gap-2 py-3"><ArrowUpDown className="size-4" />Sort</button>
+            <button type="button" onClick={() => setSheet('filter')} className="flex items-center justify-center gap-2 border-l border-line py-3"><SlidersHorizontal className="size-4" />Filter{active ? ` (${active})` : ''}</button>
+          </div>
+
           {!isLoading && data?.items?.length === 0 ? (
-            <Empty
-              icon={Dog}
-              title="No puppies match these filters"
-              text="Try removing a filter, or join the waitlist and we'll tell you when a matching litter arrives."
-              action={<div className="flex flex-wrap justify-center gap-2"><button type="button" className="btn btn-dark" onClick={clearAll}>Clear filters</button><Link to="/contact?waitlist=1" className="btn btn-outline">Join the waitlist</Link></div>}
-            />
+            <div className="mt-3"><Empty icon={Dog} title="No puppies match these filters" text="Try removing a filter or two." action={<button type="button" className="btn btn-dark" onClick={clearAll}>Clear filters</button>} /></div>
           ) : (
-            <div className="grid grid-cols-2 gap-x-4 gap-y-8 md:grid-cols-3">
-              {isLoading ? <CardSkeleton count={9} /> : data.items.map((p, i) => <PetCard key={p._id} pet={p} eager={i < 3} />)}
+            <div className={`mt-3 grid grid-cols-2 gap-2 sm:gap-3 md:grid-cols-3 xl:grid-cols-4 ${isFetching && !isLoading ? 'opacity-60' : ''}`}>
+              {isLoading ? <CardSkeleton count={8} /> : data.items.map((p, i) => <ProductCard key={p._id} pet={p} eager={i < 4} />)}
             </div>
           )}
           <Pagination page={Number(get('page') || 1)} pages={data?.pages} onChange={(n) => { set({ page: String(n) }); window.scrollTo({ top: 0, behavior: 'smooth' }); }} />
         </div>
       </div>
 
-      {drawer && (
-        <div className="fixed inset-0 z-50 lg:hidden" role="dialog" aria-modal="true" aria-label="Filters">
-          <div className="fade-in absolute inset-0 bg-ink/50" onClick={() => setDrawer(false)} />
-          <div className="drawer-in absolute inset-y-0 right-0 flex w-[88%] max-w-sm flex-col bg-white">
-            <div className="flex items-center justify-between border-b border-line p-4">
-              <h2 className="text-2xl font-bold">Filters</h2>
-              <button type="button" className="btn btn-ghost size-11 p-0" onClick={() => setDrawer(false)} aria-label="Close filters"><X className="size-6" /></button>
+      {sheet && (
+        <div className="fixed inset-0 z-50 lg:hidden" role="dialog" aria-modal="true" aria-label={sheet === 'sort' ? 'Sort' : 'Filters'}>
+          <div className="fade-in absolute inset-0 bg-ink/50" onClick={() => setSheet(null)} />
+          <div className="toast-in absolute inset-x-0 bottom-0 flex max-h-[85vh] flex-col rounded-t-3xl bg-white">
+            <div className="flex items-center justify-between border-b border-line px-4 py-3">
+              <h2 className="text-lg font-bold">{sheet === 'sort' ? 'Sort by' : 'Filters'}</h2>
+              <button type="button" onClick={() => setSheet(null)} className="grid size-10 place-items-center" aria-label="Close"><X className="size-5" /></button>
             </div>
-            <div className="flex-1 overflow-y-auto p-5">{filters}</div>
-            <div className="flex gap-2 border-t border-line p-4">
-              <button type="button" className="btn btn-ghost flex-1" onClick={clearAll}>Clear</button>
-              <button type="button" className="btn btn-dark flex-1" onClick={() => setDrawer(false)}>Show {data?.total ?? ''} puppies</button>
+            <div className="flex-1 overflow-y-auto">
+              {sheet === 'sort'
+                ? SORTS.map(([v, l]) => (
+                  <label key={v} className="flex items-center justify-between border-b border-line px-4 py-3.5 text-[15px]">
+                    {l}<input type="radio" name="msort" className="size-5 accent-ink" checked={(get('sort') || 'popular') === v} onChange={() => { set({ sort: v }); setSheet(null); }} />
+                  </label>
+                ))
+                : filters}
             </div>
+            {sheet === 'filter' && (
+              <div className="flex gap-2 border-t border-line p-3">
+                <button type="button" className="btn btn-outline flex-1" onClick={clearAll}>Clear all</button>
+                <button type="button" className="btn btn-primary flex-1" onClick={() => setSheet(null)}>Show {data?.total ?? ''} puppies</button>
+              </div>
+            )}
           </div>
         </div>
       )}

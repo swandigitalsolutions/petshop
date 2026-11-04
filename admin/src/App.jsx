@@ -27,7 +27,7 @@ function Sidebar({ onNavigate }) {
   const groups = [
     ['Overview', [['/', 'Dashboard', LayoutDashboard]]],
     ['Sales', [
-      ['/reservations', 'Reservations', ClipboardList, s?.statusCounts?.placed],
+      ['/reservations', 'Orders', ClipboardList, s?.statusCounts?.placed],
       ['/visits', 'Visits & video calls', CalendarDays, s?.upcomingVisits?.filter((v) => v.status === 'pending').length],
       ['/enquiries', 'Enquiries', MessageSquare, s?.newEnquiries],
       ['/customers', 'Customers', Users],

@@ -8,7 +8,7 @@ export default function Stories() {
     <div className="wrap py-8">
       <Crumbs items={[{ label: 'Home', to: '/' }, { label: 'Happy families' }]} />
       <h1 className="text-4xl font-extrabold sm:text-5xl">Happy families</h1>
-      <p className="mt-3 max-w-xl text-lg text-ink-soft">Stories from families who brought their puppy home from PawNest. Reserved a puppy with us? You can share yours from your account.</p>
+      <p className="mt-3 max-w-xl text-lg text-ink-soft">Stories from families who brought their puppy home from PawNest. Bought a puppy from us? You can rate it from My orders.</p>
       <div className="mt-10 columns-1 gap-5 md:columns-2 lg:columns-3">
         {isLoading ? <CardSkeleton count={3} /> : data.map((t) => (
           <figure key={t._id} className="panel mb-5 break-inside-avoid overflow-hidden">

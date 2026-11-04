@@ -8,8 +8,9 @@ import { Crumbs, Field, Spinner } from '../components/ui.jsx';
 
 const FAQ = [
   ['How do I know a puppy is healthy?', 'Our vet examines every puppy before it is listed and again before it goes home. You get a health certificate, the vaccination and deworming card, and a free first check-up with our partner vet. If a genetic or congenital illness appears within 12 months, we cover treatment or offer a replacement puppy.'],
-  ['Can I meet the puppy before paying?', 'Yes, and we encourage it. Book a free kennel visit or a live video call from any puppy page. Where possible you can meet the mother too.'],
-  ['How does the reservation deposit work?', 'A deposit (usually 10% of the price, minimum ₹5,000) holds the puppy only for you. It is fully refundable until the final vet check. You pay the balance at handover by UPI, card or bank transfer.'],
+  ['How do I pay?', 'Pay online by UPI, credit or debit card (no-cost EMI available) or net banking, or choose cash on delivery and pay when your puppy arrives.'],
+  ['How is my puppy delivered?', 'In an air-conditioned car with a trained care person, who stays to settle your puppy in and explains feeding and potty training. Delivery is free across Bengaluru.'],
+  ['Can I cancel my order?', 'Yes. You can cancel from My orders any time before the final health check, and your payment is refunded in full.'],
   ['At what age can a puppy come home?', 'Not before 8 weeks. Younger puppies are listed as "Pre-book" with a ready-to-go-home date. You can reserve them now and we keep them with their mother until they are ready.'],
   ['Do you deliver outside Bengaluru?', 'Yes. Home delivery is free within Bengaluru. For other cities in South India we use a pet-safe AC car with a care person, and the fee is shown at checkout.'],
   ['Where do your puppies come from?', 'Only from home breeders we have visited in person, who raise litters indoors, retire mothers responsibly, and register with the Kennel Club of India where applicable. We never source from puppy mills or pet markets.'],
@@ -67,10 +68,10 @@ function About() {
 
 function Policies() {
   const sections = [
-    ['Reservation and deposit', 'Your deposit holds the puppy exclusively for you. It is fully refundable if you cancel before the final vet check. After the vet check, the deposit is refundable only if the puppy fails a health check.'],
+    ['Orders and cancellations', 'Your puppy is held for you as soon as you place the order. You can cancel from My orders before the final health check for a full refund to your original payment method.'],
     ['12-month health guarantee', 'If your puppy is diagnosed with a genetic or congenital condition within 12 months, we will cover treatment at our partner vet up to the price of the puppy, or offer a replacement puppy of the same breed. Illnesses caused by missed vaccinations or accidents are not covered.'],
     ['7-day settling-in promise', 'If your puppy falls ill with an infectious disease within 7 days of handover, we cover the vet costs in full.'],
-    ['Handover', 'Puppies go home only after 8 weeks of age with a health certificate and vaccination card. Home delivery within Bengaluru is free.'],
+    ['Delivery', 'Puppies are delivered only after 8 weeks of age, with a health certificate and vaccination card. Delivery within Bengaluru is free; other cities are charged at checkout.'],
     ['Adoption', 'Rescue adoptions are free and subject to a home check. If an adoption doesn\'t work out, we will always take the dog back.'],
   ];
   return (

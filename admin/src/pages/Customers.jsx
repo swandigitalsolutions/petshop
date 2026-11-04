@@ -36,7 +36,7 @@ function CustomerDrawer({ id, onClose }) {
           {u.preferences.hasKids ? ', has children' : ''}{u.preferences.firstDog ? ', first dog' : ''}.
         </p>
       )}
-      <h3 className="mt-6 font-display text-lg font-bold">Reservations</h3>
+      <h3 className="mt-6 font-display text-lg font-bold">Orders</h3>
       {orders.length ? (
         <div className="card mt-2 divide-y divide-line">
           {orders.map((o) => (
@@ -48,7 +48,7 @@ function CustomerDrawer({ id, onClose }) {
             </Link>
           ))}
         </div>
-      ) : <p className="mt-2 text-sm text-ink-soft">No reservations yet.</p>}
+      ) : <p className="mt-2 text-sm text-ink-soft">No orders yet.</p>}
       <h3 className="mt-6 font-display text-lg font-bold">Visits</h3>
       {visits.length ? (
         <ul className="mt-2 space-y-1 text-sm">{visits.map((v) => <li key={v._id}>{formatDate(v.date)} at {v.slot}, {VISIT_NAMES[v.type]}{v.petName ? ` (${v.petName})` : ''}, <span className="capitalize">{v.status.replace('_', ' ')}</span></li>)}</ul>
@@ -97,14 +97,14 @@ export default function Customers() {
               <button type="button" onClick={() => setSp({ open: u._id })} className="flex w-full items-center gap-3 p-4 text-left active:bg-mist">
                 <span className="grid size-10 shrink-0 place-items-center rounded-full bg-mist font-bold">{u.name[0]}</span>
                 <span className="min-w-0 flex-1"><span className="block font-semibold">{u.name}</span><span className="block truncate text-xs text-ink-soft">{u.phone || u.email}</span></span>
-                <span className="text-right text-xs"><span className="block font-semibold">{u.orders} reservations</span>{money(u.spent)}</span>
+                <span className="text-right text-xs"><span className="block font-semibold">{u.orders} orders</span>{money(u.spent)}</span>
               </button>
             </li>
           ))}
         </ul>
         <div className="hidden overflow-x-auto md:block">
           <table className="w-full min-w-[760px] text-sm">
-            <thead className="border-b border-line bg-mist/60"><tr><th className="th">Name</th><th className="th">Contact</th><th className="th">Reservations</th><th className="th">Total paid</th><th className="th">Last reservation</th><th className="th">Joined</th></tr></thead>
+            <thead className="border-b border-line bg-mist/60"><tr><th className="th">Name</th><th className="th">Contact</th><th className="th">Orders</th><th className="th">Total paid</th><th className="th">Last order</th><th className="th">Joined</th></tr></thead>
             <tbody className="divide-y divide-line">
               {isLoading && Array.from({ length: 6 }, (_, i) => <tr key={i}><td colSpan={6} className="td"><div className="skeleton h-8" /></td></tr>)}
               {data?.items?.map((u) => (
