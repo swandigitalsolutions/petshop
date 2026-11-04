@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import mongoose from 'mongoose';
-import { Pet, Breed } from '../models/index.js';
+import { Pet, Breed, Review, Coupon, Setting } from '../models/index.js';
+import { breedStats, withRating } from '../utils/ratings.js';
 import { requireAdmin } from '../middleware/auth.js';
 import { cached } from '../utils/cache.js';
 import { asyncHandler, HttpError, uniqueSlug, paginate, csv, toNumber, escapeRegex } from '../utils/helpers.js';
@@ -9,10 +10,11 @@ const router = Router();
 
 const PUBLIC_HIDE = '-costPrice -breeder';
 const LIST_FIELDS =
-  'name slug code breed gender dob size price mrp images status featured adoption location vaccinated kciRegistered microchipped color tags readyToGoHome createdAt';
+  'name slug code breed gender dob size price mrp images status featured adoption location vaccinated kciRegistered microchipped color tags readyToGoHome createdAt views';
 
 const SORTS = {
   newest: { createdAt: -1 },
+  discount: { mrp: -1 }, // refined in code below
   'price-asc': { price: 1 },
   'price-desc': { price: -1 },
   popular: { views: -1 },
@@ -21,7 +23,7 @@ const SORTS = {
 
 const weeksAgo = (w) => new Date(Date.now() - w * 7 * 864e5);
 
-const buildFilter = (q, { admin = false } = {}) => {
+const buildFilter = (q, { admin = false, stats = {} } = {}) => {
   const filter = {};
   const breeds = csv(q.breed);
   if (breeds.length) filter.breed = { $in: breeds };
@@ -49,6 +51,12 @@ const buildFilter = (q, { admin = false } = {}) => {
   if (goodWith.length) filter.goodWith = { $all: goodWith };
   const ids = csv(q.ids).filter((id) => mongoose.isValidObjectId(id));
   if (ids.length) filter._id = { $in: ids };
+  if (q.deals === 'true') filter.$expr = { $gt: ['$mrp', '$price'] };
+  const minRating = toNumber(q.minRating);
+  if (minRating !== undefined) {
+    const ok = Object.entries(stats).filter(([, v]) => v.avg >= minRating).map(([b]) => b);
+    filter.breed = filter.breed ? { $in: filter.breed.$in.filter((b) => ok.includes(b)) } : { $in: ok };
+  }
   if (q.q) {
     const rx = new RegExp(escapeRegex(q.q), 'i');
     filter.$or = [{ name: rx }, { breed: rx }, { color: rx }, { code: rx }];
@@ -62,11 +70,11 @@ router.get(
   cached(),
   asyncHandler(async (req, res) => {
     const { page, limit, skip } = paginate(req, { defaultLimit: 12 });
-    const filter = buildFilter(req.query);
-    const sort = SORTS[req.query.sort] || SORTS.newest;
-    const [items, total, breeds, priceRange] = await Promise.all([
-      Pet.find(filter).select(LIST_FIELDS).slice('images', 2).sort({ status: 1, ...sort }).skip(skip).limit(limit).lean(),
-      Pet.countDocuments(filter),
+    const stats = await breedStats();
+    const filter = buildFilter(req.query, { stats });
+    const sortKey = req.query.sort || 'popular';
+    const [all, breeds, priceRange] = await Promise.all([
+      Pet.find(filter).select(LIST_FIELDS).slice('images', 2).lean(),
       Pet.aggregate([
         { $match: { status: { $in: ['available', 'reserved'] } } },
         { $group: { _id: '$breed', count: { $sum: 1 }, minPrice: { $min: '$price' } } },
@@ -77,7 +85,21 @@ router.get(
         { $group: { _id: null, min: { $min: '$price' }, max: { $max: '$price' } } },
       ]),
     ]);
-    res.json({ items, total, page, pages: Math.ceil(total / limit), facets: { breeds, priceRange: priceRange[0] || { min: 0, max: 0 } } });
+    // Sorting in memory keeps rating/discount sorts simple; a pet shop lists at most a few hundred puppies.
+    const rated = all.map(withRating(stats));
+    const disc = (p) => (p.mrp > p.price ? (p.mrp - p.price) / p.mrp : 0);
+    const cmp = {
+      newest: (a, b) => new Date(b.createdAt) - new Date(a.createdAt),
+      'price-asc': (a, b) => a.price - b.price,
+      'price-desc': (a, b) => b.price - a.price,
+      popular: (a, b) => (b.views || 0) - (a.views || 0),
+      youngest: (a, b) => new Date(b.dob) - new Date(a.dob),
+      rating: (a, b) => b.rating - a.rating || b.numReviews - a.numReviews,
+      discount: (a, b) => disc(b) - disc(a),
+    }[sortKey] || ((a, b) => (b.views || 0) - (a.views || 0));
+    rated.sort((a, b) => a.status.localeCompare(b.status) || cmp(a, b));
+    const total = rated.length;
+    res.json({ items: rated.slice(skip, skip + limit), total, page, pages: Math.ceil(total / limit), facets: { breeds, priceRange: priceRange[0] || { min: 0, max: 0 } } });
   }),
 );
 
@@ -108,7 +130,7 @@ router.get(
   }),
 );
 
-// GET /api/pets/:slug — detail + breed info + similar puppies
+// GET /api/pets/:slug — detail + breed info + reviews + offers + similar puppies
 router.get(
   '/:slug',
   cached(30 * 1000),
@@ -116,13 +138,28 @@ router.get(
     const pet = await Pet.findOne({ slug: req.params.slug, status: { $ne: 'hidden' } }).select(PUBLIC_HIDE).lean();
     if (!pet) throw new HttpError(404, 'This puppy is no longer listed');
     Pet.updateOne({ _id: pet._id }, { $inc: { views: 1 } }).catch(() => {});
-    const [breed, similar, siblings] = await Promise.all([
+    const now = new Date();
+    const [stats, breed, similar, top, settings, coupons, siblings] = await Promise.all([
+      breedStats(),
       Breed.findOne({ name: pet.breed }).lean(),
-      Pet.find({ _id: { $ne: pet._id }, status: 'available', $or: [{ breed: pet.breed }, { size: pet.size }] })
-        .select(LIST_FIELDS).slice('images', 2).sort({ breed: pet.breed ? -1 : 1, createdAt: -1 }).limit(4).lean(),
+      Pet.find({ _id: { $ne: pet._id }, status: 'available', adoption: Boolean(pet.adoption) ? true : { $ne: true }, $or: [{ breed: pet.breed }, { size: pet.size }] })
+        .select(LIST_FIELDS).slice('images', 2).sort({ views: -1 }).limit(10).lean(),
+      Review.find({ breed: pet.breed }).sort({ helpful: -1, createdAt: -1 }).limit(4).lean(),
+      Setting.findOne({ key: 'site' }).select('bankOffers').lean(),
+      Coupon.find({ active: true, minOrder: { $lte: pet.price }, $or: [{ expiresAt: null }, { expiresAt: { $gt: now } }] }).select('code description').lean(),
       Pet.countDocuments({ _id: { $ne: pet._id }, breed: pet.breed, status: 'available' }),
     ]);
-    res.json({ pet, breed, similar, siblings });
+    const r = stats[pet.breed] || { avg: 0, count: 0, dist: [0, 0, 0, 0, 0] };
+    similar.sort((a, b) => Number(b.breed === pet.breed) - Number(a.breed === pet.breed));
+    res.json({
+      pet: { ...pet, rating: r.avg, numReviews: r.count },
+      breed,
+      similar: similar.map(withRating(stats)),
+      reviews: { avg: r.avg, count: r.count, dist: r.dist, items: top },
+      offers: settings?.bankOffers || [],
+      coupons,
+      siblings,
+    });
   }),
 );
 

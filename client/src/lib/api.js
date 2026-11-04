@@ -46,9 +46,11 @@ export const qs = (params = {}) => {
 
 export const FALLBACK_IMG = `${API}/static/dog-fallback.svg`;
 
-// Resolves relative API image paths and asks Unsplash for right-sized, compressed images.
+// Resolves image paths. Our own build-time photos (/photos/*.webp) have a small variant
+// (-sm.webp, 440px) used for cards and thumbnails, so lists download ~15 KB per image.
 export const imageUrl = (src, width = 600) => {
   if (!src) return FALLBACK_IMG;
+  if (src.startsWith('/photos/') && src.endsWith('.webp') && !src.endsWith('-sm.webp') && width <= 480) return src.replace(/\.webp$/, '-sm.webp');
   if (src.startsWith('/')) return `${API}${src}`;
   if (src.includes('images.unsplash.com')) {
     const url = new URL(src);
@@ -61,8 +63,11 @@ export const imageUrl = (src, width = 600) => {
   return src;
 };
 
-export const srcSet = (src, widths = [320, 480, 720, 1000]) =>
-  src && src.includes('images.unsplash.com') ? widths.map((w) => `${imageUrl(src, w)} ${w}w`).join(', ') : undefined;
+export const srcSet = (src, widths = [320, 480, 720, 1000]) => {
+  if (!src) return undefined;
+  if (src.startsWith('/photos/') && src.endsWith('.webp') && !src.endsWith('-sm.webp')) return `${src.replace(/\.webp$/, '-sm.webp')} 440w, ${src} 900w`;
+  return src.includes('images.unsplash.com') ? widths.map((w) => `${imageUrl(src, w)} ${w}w`).join(', ') : undefined;
+};
 
 const inr = new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 });
 export const money = (n) => inr.format(Number(n) || 0);
@@ -80,13 +85,22 @@ export const ageLabel = (dob) => {
 export const formatDate = (d, opts = { day: 'numeric', month: 'short', year: 'numeric' }) =>
   d ? new Intl.DateTimeFormat('en-IN', opts).format(new Date(d)) : '';
 
-export const STATUS_LABEL = {
-  placed: 'Order placed',
-  confirmed: 'Confirmed',
-  packed: 'Packed',
-  shipped: 'Shipped',
-  out_for_delivery: 'Out for delivery',
-  delivered: 'Delivered',
-  cancelled: 'Cancelled',
-  returned: 'Returned',
+// Customer-facing order steps (internal status → label)
+export const ORDER_STEPS = [
+  ['placed', 'Ordered'],
+  ['confirmed', 'Confirmed'],
+  ['vet_check', 'Health check done'],
+  ['ready', 'Out for delivery'],
+  ['completed', 'Delivered'],
+];
+export const STATUS_LABEL = { ...Object.fromEntries(ORDER_STEPS), cancelled: 'Cancelled' };
+
+// Delivery promise shown on product pages and in the cart.
+export const deliveryInfo = (pincode, outstationFee = 6500) => {
+  const pin = String(pincode || '').trim();
+  if (!/^\d{6}$/.test(pin)) return null;
+  const local = pin.startsWith('560') || pin.startsWith('562');
+  const days = local ? 2 : 4;
+  const date = new Date(Date.now() + days * 864e5);
+  return { local, fee: local ? 0 : outstationFee, date, label: formatDate(date, { weekday: 'long', day: 'numeric', month: 'short' }) };
 };

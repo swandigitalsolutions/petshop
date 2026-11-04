@@ -82,16 +82,29 @@ export const pets = [
   const he = rest.gender === 'male' ? 'He' : 'She';
   const him = rest.gender === 'male' ? 'him' : 'her';
   const description = rest.description ||
-    `Meet ${rest.name}, a ${rest.gender === 'male' ? 'handsome boy' : 'beautiful girl'} with a ${rest.color.toLowerCase()} coat. ${rest.name} was raised in a home environment by our partner breeder, handled daily, and is already used to children, pressure cookers and doorbells. ${he} has been examined by our vet and goes home with a full health certificate and our 12-month health guarantee. Book a visit to meet ${him} at our Indiranagar kennel, or ask for a live video call.`;
+    `Meet ${rest.name}, a ${rest.gender === 'male' ? 'handsome boy' : 'beautiful girl'} with a ${rest.color.toLowerCase()} coat. ${rest.name} was raised in a home environment by our partner breeder, handled daily, and is already used to children, pressure cookers and doorbells. ${he} has been examined by our vet and is delivered to your door in an air-conditioned car with a care person who stays to settle ${him} in. ${he} comes with a vet health certificate, vaccination card, starter food and our 12-month health guarantee.`;
   const code = `PN-${rest.breed.split(/[\s(]/).filter(Boolean).map((w) => w[0]).join('').slice(0, 2).toUpperCase()}-${String(101 + i)}`;
-  return { ...rest, description, code, included: INCLUDED, location: 'Bengaluru', healthGuaranteeMonths: rest.adoption ? 0 : 12 };
+  // Every paid puppy shows an MRP so the store can show the discount, like any e-commerce listing.
+  const mrp = rest.adoption ? 0 : rest.mrp || Math.round((rest.price * (1.12 + (i % 4) * 0.03)) / 500) * 500;
+  return { ...rest, mrp, description, code, included: INCLUDED, location: 'Bengaluru', healthGuaranteeMonths: rest.adoption ? 0 : 12 };
 });
 
 export const settings = {
   key: 'site',
   storeName: 'PawNest',
   tagline: 'Healthy, happy puppies from breeders we know by name.',
-  announcement: 'Free home delivery of your puppy anywhere in Bengaluru. Every puppy comes with a 12-month health guarantee.',
+  announcement: 'FREE home delivery across Bengaluru · 12-month health guarantee · No-cost EMI from ₹2,499/month',
+  banners: [
+    { title: 'Golden Retriever puppies', subtitle: 'KCI registered · Up to 15% off', cta: 'Shop now', link: '/shop?breed=Golden%20Retriever', breed: 'Golden Retriever', color: '#FFC93C' },
+    { title: 'Small dogs for apartments', subtitle: 'Shih Tzu, Pug, Pomeranian & more from ₹22,000', cta: 'Explore', link: '/shop?size=toy,small', breed: 'Shih Tzu', color: '#BFE3D2' },
+    { title: 'Deal of the week: Huskies', subtitle: 'Blue-eyed beauties · Extra ₹2,000 off with FIRSTPUP', cta: 'Grab the deal', link: '/shop?breed=Siberian%20Husky', breed: 'Siberian Husky', color: '#CFE0F7' },
+    { title: 'Adopt, don\'t shop', subtitle: 'Rescued Indie puppies · Free adoption', cta: 'Meet them', link: '/adopt', breed: 'Indie (Indian Pariah)', color: '#F8D3C5' },
+  ],
+  bankOffers: [
+    '10% instant discount on HDFC Bank credit cards, up to ₹5,000',
+    'No-cost EMI on 3 and 6 months with all major credit cards',
+    '5% cashback on UPI payments above ₹20,000, up to ₹1,500',
+  ],
   heroTitle: 'Bring home a puppy you can be sure of',
   heroSubtitle: 'Vet-checked, vaccinated puppies from ethical, home-raised litters. Meet them at our Indiranagar kennel or on a video call before you decide.',
   depositPercent: 10,
@@ -113,6 +126,7 @@ export const settings = {
 
 export const coupons = [
   { code: 'FIRSTPUP', description: '₹2,000 off your first puppy', type: 'flat', value: 2000, minOrder: 20000 },
+  { code: 'PAWNEST10', description: '10% off orders above ₹60,000 (up to ₹8,000)', type: 'percent', value: 10, minOrder: 60000, maxDiscount: 8000 },
   { code: 'DIWALI5', description: '5% off any puppy (up to ₹5,000)', type: 'percent', value: 5, minOrder: 25000, maxDiscount: 5000 },
   { code: 'FAMILY3K', description: '₹3,000 off for returning PawNest families', type: 'flat', value: 3000, minOrder: 30000 },
 ];
@@ -147,3 +161,19 @@ export const pastSales = [
   ['Noodle', 'Dachshund', 37000], ['Sky', 'Siberian Husky', 53000], ['Muffin', 'Maltese', 41000],
   ['Oreo', 'Shih Tzu', 31000], ['Jack', 'Beagle', 30000], ['Ace', 'Doberman', 31000], ['Lily', 'Labrador Retriever', 30000],
 ];
+
+// Product reviews, assigned per breed by the seed (e-commerce style ratings).
+export const reviewPool = [
+  [5, 'Healthy and super playful', 'Our {breed} puppy arrived healthy, playful and already used to people. The vaccination card and vet certificate were all in order. Very happy with PawNest.'],
+  [5, 'Worth every rupee', 'Delivered home in an AC car, the care person stayed for an hour and explained feeding and potty training. Excellent service.'],
+  [4, 'Good puppy, delivery a day late', 'Lovely, healthy {breed}. Delivery was a day later than promised but they kept me updated on WhatsApp throughout.'],
+  [5, 'Exactly as shown in the photos', 'The puppy looked exactly like the photos and video call. Papers, deworming record and starter food all included.'],
+  [5, 'Best decision for our family', 'Our kids are in love. The {breed} has settled in beautifully and the 12-month health guarantee gave us peace of mind.'],
+  [4, 'Nice experience', 'Smooth ordering and payment. The free vet check-up after delivery was a nice touch. Would buy again.'],
+  [5, 'Very well socialised', 'You can tell the puppy was raised in a home. Not scared of noise at all, and already eating on schedule.'],
+  [3, 'Puppy is great, support could be faster', 'Happy with the puppy itself. Took a while to get through on the phone once, but WhatsApp support helped.'],
+  [5, 'Genuine KCI papers', 'Got the KCI registration papers within two weeks as promised. Highly recommended for a pedigree {breed}.'],
+  [5, 'Healthy pup, honest advice', 'They were honest about how much exercise a {breed} needs. Puppy has been perfectly healthy since day one.'],
+];
+
+export const reviewers = ['Ananya R.', 'Rahul M.', 'Priya S.', 'Karthik N.', 'Sneha P.', 'Vikram J.', 'Meera K.', 'Arjun T.', 'Divya L.', 'Farhan A.', 'Nikhil G.', 'Pooja B.', 'Suresh K.', 'Lakshmi I.', 'Rohit S.', 'Ayesha M.'];

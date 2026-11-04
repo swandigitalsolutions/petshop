@@ -1,58 +1,75 @@
-import { Link } from 'react-router-dom';
-import { ShieldCheck, Syringe, BadgeCheck, CalendarClock } from 'lucide-react';
-import { Img, Price } from './ui.jsx';
+import { Link, useNavigate } from 'react-router-dom';
+import { ShoppingCart, Check } from 'lucide-react';
+import { Img, Price, Rating } from './ui.jsx';
 import WishButton from './WishButton.jsx';
-import { ageLabel, formatDate } from '../lib/api.js';
+import { ageLabel, discountPct, deliveryInfo } from '../lib/api.js';
 import { usePrefetch } from '../lib/queries.js';
-import { useCompare } from '../context/CompareContext.jsx';
+import { useCart } from '../context/CartContext.jsx';
 
-export function PetCard({ pet, eager }) {
+export function ProductCard({ pet, eager, compact }) {
   const prefetch = usePrefetch();
-  const compare = useCompare();
-  const inCompare = compare.has(pet._id);
-  const preBook = pet.readyToGoHome && new Date(pet.readyToGoHome) > new Date();
+  const cart = useCart();
+  const nav = useNavigate();
+  const soldOut = pet.status !== 'available';
+  const off = discountPct(pet.price, pet.mrp);
+  const inCart = cart.has(pet._id);
+  const eta = deliveryInfo(cart.pincode || '560001');
+  const to = `/puppies/${pet.slug}`;
+
   return (
-    <article className="group relative">
-      <Link to={`/puppies/${pet.slug}`} onMouseEnter={() => prefetch(pet.slug)} onFocus={() => prefetch(pet.slug)} className="block">
-        <div className="relative aspect-[4/5] overflow-hidden rounded-[20px] bg-mist">
-          <Img
-            src={pet.images?.[0]}
-            alt={`${pet.name}, ${pet.breed} puppy`}
-            width={560}
-            eager={eager}
-            className="size-full object-cover group-hover:scale-[1.04]"
-          />
-          {pet.status === 'reserved' && <div className="absolute inset-0 bg-ink/30" />}
-          <div className="absolute left-3 top-3 flex flex-wrap gap-1.5">
-            {pet.status === 'reserved' && <span className="badge bg-ink text-white">Reserved</span>}
+    <article className="group relative flex h-full flex-col overflow-hidden rounded-2xl border border-line bg-white transition-shadow hover:shadow-[0_8px_30px_rgba(23,32,51,0.10)]">
+      <Link to={to} onMouseEnter={() => prefetch(pet.slug)} onFocus={() => prefetch(pet.slug)} className="block" aria-label={`${pet.name}, ${pet.breed}`}>
+        <div className="relative aspect-[4/5] overflow-hidden bg-mist">
+          <Img src={pet.images?.[0] || pet.image} alt={`${pet.name}, ${pet.breed} puppy`} width={440} eager={eager} sizes="(min-width: 1024px) 22vw, 48vw" className={`size-full object-cover group-hover:scale-[1.04] ${soldOut ? 'opacity-60 grayscale-[40%]' : ''}`} />
+          <div className="absolute left-2 top-2 flex flex-col items-start gap-1">
+            {off > 0 && !soldOut && <span className="badge bg-coral text-white">{off}% OFF</span>}
             {pet.adoption && <span className="badge bg-leaf text-white">Free adoption</span>}
-            {preBook && <span className="badge bg-yolk text-ink">Pre-book</span>}
+            {pet.kciRegistered && !compact && <span className="badge bg-white/95 text-ink">KCI</span>}
           </div>
-        </div>
-        <div className="mt-3 px-0.5">
-          <div className="flex items-baseline justify-between gap-2">
-            <h3 className="text-xl font-bold">{pet.name}</h3>
-            <span className="shrink-0 text-sm text-ink-soft">{pet.gender === 'male' ? 'Boy' : 'Girl'}, {ageLabel(pet.dob)}</span>
-          </div>
-          <p className="text-sm text-ink-soft">{pet.breed}{pet.color ? `, ${pet.color.toLowerCase()}` : ''}</p>
-          <div className="mt-2"><Price price={pet.price} mrp={pet.mrp} free={pet.adoption} /></div>
-          <ul className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-xs text-ink-soft">
-            {pet.vaccinated && <li className="inline-flex items-center gap-1"><Syringe className="size-3.5 text-leaf" />Vaccinated</li>}
-            {pet.kciRegistered && <li className="inline-flex items-center gap-1"><BadgeCheck className="size-3.5 text-leaf" />KCI papers</li>}
-            {!pet.adoption && <li className="inline-flex items-center gap-1"><ShieldCheck className="size-3.5 text-leaf" />12-month guarantee</li>}
-            {preBook && <li className="inline-flex items-center gap-1"><CalendarClock className="size-3.5" />Home from {formatDate(pet.readyToGoHome, { day: 'numeric', month: 'short' })}</li>}
-          </ul>
+          {soldOut && <span className="absolute inset-x-0 bottom-0 bg-ink/85 py-1.5 text-center text-xs font-bold tracking-wide text-white">SOLD OUT</span>}
         </div>
       </Link>
-      <WishButton id={pet._id} name={pet.name} className="absolute right-3 top-3" />
-      <button
-        type="button"
-        onClick={() => compare.toggle(pet)}
-        aria-pressed={inCompare}
-        className={`absolute right-3 top-[3.75rem] rounded-full px-3 py-1.5 text-xs font-semibold shadow-sm transition ${inCompare ? 'bg-ink text-white' : 'bg-white/95 text-ink opacity-0 group-hover:opacity-100 focus:opacity-100 max-lg:opacity-100'}`}
-      >
-        {inCompare ? 'Comparing' : 'Compare'}
-      </button>
+      <WishButton id={pet._id} name={pet.name} className="absolute right-2 top-2 size-9" />
+      <div className="flex flex-1 flex-col p-3">
+        <Link to={to} className="block">
+          <p className="truncate text-xs font-medium text-ink-soft">{pet.breed.replace(' (Indian Pariah)', '')}</p>
+          <h3 className="mt-0.5 truncate text-[15px] font-semibold leading-snug text-ink group-hover:text-ink-2">
+            {pet.name} <span className="font-normal text-ink-soft">· {pet.gender === 'male' ? 'Male' : 'Female'}, {ageLabel(pet.dob)}</span>
+          </h3>
+          <div className="mt-1.5"><Rating rating={pet.rating} count={pet.numReviews} /></div>
+          <div className="mt-1.5"><Price price={pet.price} mrp={pet.mrp} free={pet.adoption} /></div>
+          {!soldOut && eta && !compact && (
+            <p className="mt-1 text-xs text-ink-soft">
+              <span className="font-semibold text-leaf">{eta.local ? 'Free delivery' : 'Delivery'}</span> by {eta.label.split(',')[0]}
+            </p>
+          )}
+        </Link>
+        <div className="mt-auto pt-3">
+          {soldOut ? (
+            <button type="button" disabled className="btn btn-sm w-full rounded-xl border border-line text-ink-soft">Sold out</button>
+          ) : inCart ? (
+            <button type="button" onClick={() => nav('/cart')} className="btn btn-sm btn-outline w-full rounded-xl"><Check className="size-4" />Go to cart</button>
+          ) : (
+            <button type="button" onClick={() => cart.add(pet)} className="btn btn-sm btn-primary w-full rounded-xl"><ShoppingCart className="size-4" />{pet.adoption ? 'Add to adopt' : 'Add to cart'}</button>
+          )}
+        </div>
+      </div>
     </article>
   );
+}
+
+export { ProductCard as PetCard };
+
+export function CardSkeleton({ count = 4 }) {
+  return Array.from({ length: count }, (_, i) => (
+    <div key={i} className="overflow-hidden rounded-2xl border border-line bg-white">
+      <div className="skeleton aspect-[4/5] rounded-none" />
+      <div className="space-y-2 p-3">
+        <div className="skeleton h-3 w-1/2" />
+        <div className="skeleton h-4 w-3/4" />
+        <div className="skeleton h-5 w-2/3" />
+        <div className="skeleton h-9 w-full" />
+      </div>
+    </div>
+  ));
 }

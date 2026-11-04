@@ -3,22 +3,22 @@ import { Link } from 'react-router-dom';
 import { Star, Minus, Plus, ChevronLeft, ChevronRight } from 'lucide-react';
 import { FALLBACK_IMG, imageUrl, srcSet, money, discountPct } from '../lib/api.js';
 
+// Images render immediately over a light placeholder (no fade-in delay), lazy-load below
+// the fold, and pick the small 440px variant for cards via srcset.
 export function Img({ src, alt = '', width = 600, sizes = '(min-width: 1024px) 25vw, 50vw', className = '', eager = false, ...rest }) {
   const [failed, setFailed] = useState(false);
-  const [loaded, setLoaded] = useState(false);
-  const real = failed ? FALLBACK_IMG : imageUrl(src, width);
+  const set = failed ? undefined : srcSet(src);
   return (
     <img
-      src={real}
-      srcSet={failed ? undefined : srcSet(src)}
-      sizes={srcSet(src) ? sizes : undefined}
+      src={failed ? FALLBACK_IMG : imageUrl(src, width)}
+      srcSet={set}
+      sizes={set ? sizes : undefined}
       alt={alt}
       loading={eager ? 'eager' : 'lazy'}
       fetchPriority={eager ? 'high' : undefined}
-      decoding="async"
-      onLoad={() => setLoaded(true)}
+      decoding={eager ? 'sync' : 'async'}
       onError={() => setFailed(true)}
-      className={`${className} transition-[opacity,transform] duration-500 ${loaded ? 'opacity-100' : 'opacity-0'}`}
+      className={`bg-mist transition-transform duration-500 ${className}`}
       {...rest}
     />
   );
@@ -30,11 +30,11 @@ export function Price({ price, mrp, size = 'md', free }) {
   if (free) return <span className={`${big ? 'text-3xl' : 'text-lg'} font-display font-bold text-leaf`}>Free adoption</span>;
   return (
     <span className="inline-flex flex-wrap items-baseline gap-x-2">
-      <span className={`${big ? 'text-3xl' : 'text-lg'} font-display font-bold text-ink`}>{money(price)}</span>
+      <span className={`${big ? 'text-[32px]' : 'text-lg'} font-display font-bold text-ink`}>{money(price)}</span>
       {off > 0 && (
         <>
           <span className={`${big ? 'text-base' : 'text-sm'} text-ink-soft line-through`}>{money(mrp)}</span>
-          <span className={`${big ? 'text-base' : 'text-sm'} font-semibold text-coral`}>{off}% off</span>
+          <span className={`${big ? 'text-lg' : 'text-sm'} font-bold text-leaf`}>{off}% off</span>
         </>
       )}
     </span>
@@ -51,12 +51,23 @@ export function Stars({ value = 0, size = 14 }) {
   );
 }
 
-export function Rating({ rating, count }) {
-  if (!count) return <span className="text-xs text-ink-soft">No reviews yet</span>;
+// Green rating chip, the convention shoppers recognise from Indian e-commerce.
+export function RatingChip({ value, small }) {
+  if (!value) return null;
+  const tone = value >= 4 ? 'bg-leaf' : value >= 3 ? 'bg-[#e8a317]' : 'bg-coral';
+  return (
+    <span className={`inline-flex items-center gap-0.5 rounded-md ${tone} ${small ? 'px-1.5 py-px text-xs' : 'px-2 py-0.5 text-sm'} font-bold text-white`}>
+      {value.toFixed(1)}<Star className={small ? 'size-3 fill-white' : 'size-3.5 fill-white'} strokeWidth={0} />
+    </span>
+  );
+}
+
+export function Rating({ rating, count, small = true }) {
+  if (!count) return <span className="text-xs text-ink-soft">New listing</span>;
   return (
     <span className="inline-flex items-center gap-1.5 text-xs text-ink-soft">
-      <Stars value={rating} />
-      <span className="font-semibold text-ink">{rating?.toFixed(1)}</span>({count})
+      <RatingChip value={rating} small={small} />
+      <span>({count.toLocaleString('en-IN')})</span>
     </span>
   );
 }

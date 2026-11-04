@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import mongoose from 'mongoose';
-import { Order, Pet, Coupon, Setting, nextSeq, ORDER_STATUSES } from '../models/index.js';
+import { Order, Pet, Coupon, Setting, User, nextSeq, ORDER_STATUSES } from '../models/index.js';
+import { breedStats, withRating } from '../utils/ratings.js';
 import { requireAuth, requireAdmin } from '../middleware/auth.js';
 import { asyncHandler, HttpError, paginate, escapeRegex } from '../utils/helpers.js';
 
@@ -46,6 +47,104 @@ const quote = async ({ petId, paymentPlan = 'deposit', handover = 'pickup', city
   const payNow = paymentPlan === 'full' ? total : deposit;
   return { pet, petPrice: pet.price, deliveryFee, discount, total, deposit, payNow, balance: total - payNow, couponError, couponDoc };
 };
+
+// ---------- Cart (each puppy is unique, so quantity is always 1) ----------
+export const cartQuote = async ({ items = [], coupon, city }) => {
+  const ids = [...new Set((Array.isArray(items) ? items : []).map(String))].filter((id) => mongoose.isValidObjectId(id));
+  const found = await Pet.find({ _id: { $in: ids } }).select('-costPrice -breeder').lean();
+  const ok = found.filter((p) => p.status === 'available');
+  const unavailable = [
+    ...found.filter((p) => p.status !== 'available').map((p) => ({ _id: p._id, name: p.name })),
+    ...ids.filter((id) => !found.some((p) => String(p._id) === id)).map((id) => ({ _id: id, name: 'A puppy' })),
+  ];
+  const mrpTotal = ok.reduce((x, p) => x + Math.max(p.mrp || 0, p.price), 0);
+  const priceTotal = ok.reduce((x, p) => x + p.price, 0);
+  let cDisc = 0; let couponError; let couponDoc;
+  if (coupon) {
+    couponDoc = await Coupon.findOne({ code: String(coupon).toUpperCase().trim() });
+    const r = couponDiscount(couponDoc, priceTotal);
+    couponError = r.error;
+    cDisc = r.discount || 0;
+  }
+  const s = (await Setting.findOne({ key: 'site' }).lean()) || {};
+  const local = !city || (s.freeDeliveryCities || ['Bengaluru']).some((c) => c.toLowerCase() === String(city).trim().toLowerCase());
+  const delivery = ok.length && !local ? s.outstationDeliveryFee ?? 6500 : 0;
+  const stats = await breedStats();
+  return {
+    items: ok.map((p) => withRating(stats)({ ...p, images: (p.images || []).slice(0, 1) })), unavailable, mrpTotal, priceTotal, mrpDiscount: mrpTotal - priceTotal,
+    couponDiscount: cDisc, couponError, coupon: couponError ? undefined : couponDoc?.code, couponDoc: couponError ? undefined : couponDoc,
+    delivery, total: priceTotal - cDisc + delivery, savings: mrpTotal - priceTotal + cDisc,
+  };
+};
+
+router.post(
+  '/checkout',
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    const { items, address, paymentMethod = 'upi', coupon, notes } = req.body;
+    if (!Array.isArray(items) || !items.length) throw new HttpError(400, 'Your cart is empty');
+    if (!address?.name || !address?.phone || !address?.line1 || !address?.city || !address?.pincode) throw new HttpError(400, 'Please add a complete delivery address');
+    if (!/^\d{6}$/.test(String(address.pincode).trim())) throw new HttpError(400, 'Enter a valid 6-digit pincode');
+    if (!/^[+\d\s-]{10,15}$/.test(String(address.phone))) throw new HttpError(400, 'Enter a valid 10-digit mobile number');
+    if (!['upi', 'card', 'netbanking', 'cod'].includes(paymentMethod)) throw new HttpError(400, 'Choose a payment method');
+    const q = await cartQuote({ items, coupon, city: address.city });
+    if (q.unavailable.length) throw new HttpError(409, `${q.unavailable.map((x) => x.name).join(', ')} just sold out. Remove ${q.unavailable.length > 1 ? 'them' : 'it'} from your cart to continue.`);
+    if (!q.items.length) throw new HttpError(400, 'Your cart is empty');
+    if (coupon && q.couponError) throw new HttpError(400, q.couponError);
+
+    // Lock every puppy atomically; undo if any was bought a moment ago by someone else.
+    const locked = [];
+    for (const p of q.items) {
+      // eslint-disable-next-line no-await-in-loop
+      const r = await Pet.updateOne({ _id: p._id, status: 'available' }, { status: 'reserved' });
+      if (!r.modifiedCount) {
+        await Pet.updateMany({ _id: { $in: locked } }, { status: 'available' });
+        throw new HttpError(409, `${p.name} was just bought by another family. Remove it from your cart to continue.`);
+      }
+      locked.push(p._id);
+    }
+
+    try {
+      const cod = paymentMethod === 'cod';
+      const groupNo = `OD${26110000 + (await nextSeq('group'))}`;
+      const eta = new Date(Date.now() + (q.delivery ? 4 : 2) * 864e5);
+      const addr = { name: address.name, phone: address.phone, line1: address.line1, line2: address.line2, city: address.city, state: address.state, pincode: String(address.pincode).trim() };
+      let discountLeft = q.couponDiscount;
+      const orders = [];
+      for (let i = 0; i < q.items.length; i += 1) {
+        const pet = q.items[i];
+        const share = i === q.items.length - 1 ? discountLeft : Math.round((q.couponDiscount * pet.price) / (q.priceTotal || 1));
+        discountLeft -= share;
+        const deliveryFee = i === 0 ? q.delivery : 0;
+        const total = pet.price - share + deliveryFee;
+        const paid = cod ? 0 : total;
+        // eslint-disable-next-line no-await-in-loop
+        const seq = await nextSeq('order');
+        // eslint-disable-next-line no-await-in-loop
+        orders.push(await Order.create({
+          orderNo: `PN${100000 + seq}`, groupNo, user: req.user._id, pet: pet._id,
+          petSnapshot: { name: pet.name, breed: pet.breed, image: pet.images?.[0], slug: pet.slug, gender: pet.gender, price: pet.price, mrp: pet.mrp },
+          customer: { name: addr.name, phone: addr.phone, email: req.user.email },
+          paymentPlan: 'full', handover: 'home_delivery', handoverDate: eta, address: addr,
+          petPrice: pet.price, deliveryFee, discount: share, total, amountPaid: paid, balanceDue: total - paid, coupon: q.coupon,
+          paymentMethod: cod ? 'cash' : paymentMethod, paymentStatus: total === 0 || paid >= total ? 'paid' : 'pending', notes,
+          timeline: [{ status: 'placed', note: pet.adoption ? 'Adoption request received. We will call you for a short home check.' : cod ? 'Order placed. Pay on delivery.' : 'Order placed. Payment received.' }],
+        }));
+      }
+      if (q.couponDoc) await Coupon.updateOne({ _id: q.couponDoc._id }, { $inc: { used: 1 } });
+      const user = await User.findById(req.user._id);
+      if (!user.addresses.some((a) => a.line1 === addr.line1 && a.pincode === addr.pincode)) {
+        user.addresses.forEach((a) => { a.isDefault = false; });
+        user.addresses.unshift({ label: 'Home', ...addr, isDefault: true });
+        await user.save();
+      }
+      res.status(201).json({ groupNo, orders, total: orders.reduce((x, o) => x + o.total, 0), paymentMethod });
+    } catch (err) {
+      await Pet.updateMany({ _id: { $in: locked } }, { status: 'available' });
+      throw err;
+    }
+  }),
+);
 
 router.post(
   '/quote',

@@ -5,7 +5,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import App from './App.jsx';
 import { AuthProvider } from './context/AuthContext.jsx';
 import { ToastProvider } from './context/ToastContext.jsx';
-import { CompareProvider } from './context/CompareContext.jsx';
+import { CartProvider } from './context/CartContext.jsx';
 import './index.css';
 
 const queryClient = new QueryClient({
@@ -26,9 +26,9 @@ ReactDOM.createRoot(document.getElementById('root')).render(
       <BrowserRouter>
         <ToastProvider>
           <AuthProvider>
-            <CompareProvider>
+            <CartProvider>
               <App />
-            </CompareProvider>
+            </CartProvider>
           </AuthProvider>
         </ToastProvider>
       </BrowserRouter>

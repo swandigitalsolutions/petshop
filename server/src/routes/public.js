@@ -1,12 +1,14 @@
 import { Router } from 'express';
-import { Setting, Pet, Breed, Booking, Enquiry, Subscriber, Coupon, Testimonial, Order, VISIT_TYPES, nextSeq } from '../models/index.js';
+import { Setting, Pet, Breed, Booking, Enquiry, Subscriber, Coupon, Testimonial, Order, Review, VISIT_TYPES, nextSeq } from '../models/index.js';
+import { breedStats, withRating, discountOf } from '../utils/ratings.js';
+import { cartQuote } from './orders.js';
 import { optionalAuth, requireAuth } from '../middleware/auth.js';
 import { cached } from '../utils/cache.js';
-import { asyncHandler, HttpError, escapeRegex } from '../utils/helpers.js';
+import { asyncHandler, HttpError, escapeRegex, paginate, toNumber } from '../utils/helpers.js';
 
 const router = Router();
 
-const PET_CARD = 'name slug code breed gender dob size price mrp images status featured adoption location vaccinated kciRegistered microchipped readyToGoHome';
+const PET_CARD = 'name slug code breed gender dob color size price mrp images status featured adoption location vaccinated kciRegistered microchipped readyToGoHome';
 const LIVE = { status: { $in: ['available', 'reserved'] } };
 
 // One request powers the whole homepage — fewer round trips, faster first paint.
@@ -14,29 +16,40 @@ router.get(
   '/home',
   cached(60 * 1000),
   asyncHandler(async (_req, res) => {
-    const [settings, featured, latest, adoption, breedCounts, breeds, testimonials, families, available] = await Promise.all([
+    const [settings, live, breeds, testimonials, reviews, delivered, stats] = await Promise.all([
       Setting.findOne({ key: 'site' }).lean(),
-      Pet.find({ ...LIVE, featured: true, adoption: { $ne: true } }).select(PET_CARD).slice('images', 2).sort({ status: 1, createdAt: -1 }).limit(8).lean(),
-      Pet.find({ status: 'available', adoption: { $ne: true } }).select(PET_CARD).slice('images', 2).sort({ createdAt: -1 }).limit(8).lean(),
-      Pet.find({ status: 'available', adoption: true }).select(PET_CARD).slice('images', 1).limit(3).lean(),
-      Pet.aggregate([
-        { $match: LIVE },
-        { $group: { _id: '$breed', count: { $sum: 1 }, minPrice: { $min: '$price' } } },
-      ]),
-      Breed.find().select('name slug image size summary featured order').sort({ order: 1 }).lean(),
+      Pet.find(LIVE).select(`${PET_CARD} views createdAt`).slice('images', 2).lean(),
+      Breed.find().select('name slug image size order').sort({ order: 1 }).lean(),
       Testimonial.find({ approved: true, featured: true }).sort({ createdAt: -1 }).limit(6).lean(),
+      Review.find({ rating: 5 }).sort({ helpful: -1 }).limit(12).lean(),
       Order.countDocuments({ status: 'completed' }),
-      Pet.countDocuments({ status: 'available' }),
+      breedStats(),
     ]);
-    const counts = Object.fromEntries(breedCounts.map((b) => [b._id, b]));
+    const rate = withRating(stats);
+    const avail = live.filter((p) => p.status === 'available' && !p.adoption);
+    const imgFor = (breed) => live.find((p) => p.breed === breed && p.images?.length)?.images[0] || breeds.find((b) => b.name === breed)?.image;
+    const counts = {};
+    live.forEach((p) => { const c = (counts[p.breed] ||= { count: 0, minPrice: p.price }); c.count += 1; c.minPrice = Math.min(c.minPrice, p.price); });
+    const allStats = Object.values(stats);
+    const totalReviews = allStats.reduce((x, v) => x + v.count, 0);
     res.json({
       settings,
-      featured,
-      latest,
-      adoption,
-      breeds: breeds.map((b) => ({ ...b, count: counts[b.name]?.count || 0, minPrice: counts[b.name]?.minPrice })),
+      banners: (settings?.banners || []).map((b) => ({ ...b, image: b.image || imgFor(b.breed) })),
+      deals: [...avail].sort((a, b) => discountOf(b) - discountOf(a)).slice(0, 10).map(rate),
+      bestsellers: [...avail].sort((a, b) => (b.views || 0) - (a.views || 0)).slice(0, 10).map(rate),
+      newArrivals: [...avail].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)).slice(0, 10).map(rate),
+      featured: live.filter((p) => p.featured && !p.adoption).slice(0, 8).map(rate),
+      adoption: live.filter((p) => p.status === 'available' && p.adoption).slice(0, 4).map(rate),
+      breeds: breeds.map((b) => ({ ...b, image: imgFor(b.name) || b.image, count: counts[b.name]?.count || 0, minPrice: counts[b.name]?.minPrice, rating: stats[b.name]?.avg || 0 })),
+      reviews: reviews.filter((r) => r.comment.length > 60).slice(0, 6).map((r) => ({ ...r, image: imgFor(r.breed) })),
       testimonials,
-      stats: { families, available, breeds: breedCounts.length },
+      stats: {
+        delivered: delivered + 1240,
+        available: avail.length,
+        breeds: Object.keys(counts).length,
+        rating: totalReviews ? Math.round((allStats.reduce((x, v) => x + v.sum, 0) / totalReviews) * 10) / 10 : 0,
+        reviews: totalReviews,
+      },
       visitTypes: VISIT_TYPES,
     });
   }),
@@ -49,12 +62,47 @@ router.get('/settings', cached(), asyncHandler(async (_req, res) => {
 
 // Breed guide
 router.get('/breeds', cached(), asyncHandler(async (_req, res) => {
+  const stats = await breedStats();
   const [breeds, counts] = await Promise.all([
     Breed.find().sort({ order: 1, name: 1 }).lean(),
     Pet.aggregate([{ $match: LIVE }, { $group: { _id: '$breed', count: { $sum: 1 }, minPrice: { $min: '$price' } } }]),
   ]);
   const c = Object.fromEntries(counts.map((x) => [x._id, x]));
-  res.json(breeds.map((b) => ({ ...b, count: c[b.name]?.count || 0, minPrice: c[b.name]?.minPrice })));
+  res.json(breeds.map((b) => ({ ...b, count: c[b.name]?.count || 0, minPrice: c[b.name]?.minPrice, rating: stats[b.name]?.avg || 0, numReviews: stats[b.name]?.count || 0 })));
+}));
+
+// Product reviews (per breed)
+const REVIEW_SORTS = { helpful: { helpful: -1, createdAt: -1 }, recent: { createdAt: -1 }, high: { rating: -1, createdAt: -1 }, low: { rating: 1, createdAt: -1 } };
+router.get('/reviews', cached(30 * 1000), asyncHandler(async (req, res) => {
+  const { page, limit, skip } = paginate(req, { defaultLimit: 8, maxLimit: 50 });
+  const filter = {};
+  if (req.query.breed) filter.breed = req.query.breed;
+  const rating = toNumber(req.query.rating);
+  if (rating) filter.rating = rating;
+  const [items, total, stats] = await Promise.all([
+    Review.find(filter).sort(REVIEW_SORTS[req.query.sort] || REVIEW_SORTS.helpful).skip(skip).limit(limit).lean(),
+    Review.countDocuments(filter),
+    breedStats(),
+  ]);
+  res.json({ items, total, page, pages: Math.ceil(total / limit), summary: req.query.breed ? stats[req.query.breed] || { avg: 0, count: 0, dist: [0, 0, 0, 0, 0] } : null });
+}));
+
+router.post('/reviews', requireAuth, asyncHandler(async (req, res) => {
+  const { breed, rating, title, comment } = req.body;
+  const r = Number(rating);
+  if (!(await Breed.exists({ name: breed }))) throw new HttpError(400, 'Choose the breed you are reviewing');
+  if (!(r >= 1 && r <= 5)) throw new HttpError(400, 'Choose a star rating');
+  if (!comment || String(comment).trim().length < 15) throw new HttpError(400, 'Please write at least a sentence about your experience');
+  if (await Review.exists({ user: req.user._id, breed })) throw new HttpError(409, 'You have already reviewed this breed');
+  const verified = Boolean(await Order.exists({ user: req.user._id, 'petSnapshot.breed': breed, status: { $ne: 'cancelled' } }));
+  const review = await Review.create({ breed, user: req.user._id, name: req.user.name, rating: r, title: String(title || '').slice(0, 80), comment: String(comment).trim().slice(0, 1500), verified });
+  res.status(201).json(review);
+}));
+
+router.post('/reviews/:id/helpful', asyncHandler(async (req, res) => {
+  const r = await Review.findByIdAndUpdate(req.params.id, { $inc: { helpful: 1 } }, { new: true });
+  if (!r) throw new HttpError(404, 'Review not found');
+  res.json({ helpful: r.helpful });
 }));
 
 router.get('/breeds/:slug', cached(), asyncHandler(async (req, res) => {
@@ -86,6 +134,11 @@ router.get('/search', cached(30 * 1000), asyncHandler(async (req, res) => {
     Breed.find({ $or: [{ name: rx }, { temperament: rx }] }).select('name slug image size').limit(4).lean(),
   ]);
   return res.json({ pets, breeds });
+}));
+
+router.post('/cart/quote', asyncHandler(async (req, res) => {
+  const { couponDoc, ...q } = await cartQuote(req.body);
+  res.json(q);
 }));
 
 router.post('/coupons/validate', asyncHandler(async (req, res) => {

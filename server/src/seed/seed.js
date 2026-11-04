@@ -2,7 +2,7 @@ import mongoose from 'mongoose';
 import { fileURLToPath } from 'node:url';
 import { config } from '../config.js';
 import {
-  User, Pet, Breed, Order, Coupon, Booking, Enquiry, Testimonial, Setting, Counter, VISIT_TYPES,
+  User, Pet, Breed, Order, Coupon, Booking, Enquiry, Testimonial, Review, Setting, Counter, VISIT_TYPES,
 } from '../models/index.js';
 import { slugify } from '../utils/helpers.js';
 import { fetchBreedPhotos } from './images.js';
@@ -30,7 +30,7 @@ export const seed = async ({ silent = false } = {}) => {
 
   await Promise.all([
     User.deleteMany({}), Pet.deleteMany({}), Breed.deleteMany({}), Order.deleteMany({}), Coupon.deleteMany({}),
-    Booking.deleteMany({}), Enquiry.deleteMany({}), Testimonial.deleteMany({}), Setting.deleteMany({}), Counter.deleteMany({ _id: { $ne: 'seed-lock' } }),
+    Booking.deleteMany({}), Enquiry.deleteMany({}), Testimonial.deleteMany({}), Review.deleteMany({}), Setting.deleteMany({}), Counter.deleteMany({ _id: { $ne: 'seed-lock' } }),
   ]);
 
   await Setting.create({ ...data.settings, heroImage: photos['Golden Retriever']?.[0] || data.FALLBACK_PHOTOS[0] });
@@ -89,7 +89,7 @@ export const seed = async ({ silent = false } = {}) => {
     const upto = status === 'cancelled' ? ['placed', 'cancelled'] : FLOW.slice(0, FLOW.indexOf(status) + 1);
     const notes = { confirmed: 'Payment received. Puppy reserved for you.', vet_check: 'Final vet check and vaccination update done.', ready: 'Ready to go home! We will call to fix the handover time.', completed: 'Welcome home! Enjoy your new family member.' };
     orders.push({
-      orderNo: `PN${100000 + seq}`, user: cust._id, pet: pet._id,
+      orderNo: `PN${100000 + seq}`, groupNo: `OD${26110000 + seq}`, user: cust._id, pet: pet._id,
       petSnapshot: { name: pet.name, breed: pet.breed, image: pet.images[0], slug: pet.slug, gender: pet.gender, price },
       customer: { name: cust.name, phone: cust.phone, email: cust.email },
       paymentPlan: plan, handover, handoverDate: new Date(createdAt.getTime() + between(3, 10) * 864e5),
@@ -141,6 +141,18 @@ export const seed = async ({ silent = false } = {}) => {
     { breed: 'Golden Retriever', name: 'Rohit Shetty', phone: '9886098765', message: 'Please add me to the waitlist for the next Golden Retriever litter (female).', type: 'breed_waitlist', status: 'contacted' },
     { pet: pets.find((p) => p.adoption)._id, petName: 'Kaalu', breed: 'Indie (Indian Pariah)', name: 'Lakshmi Iyer', phone: '9886011223', message: 'We would love to adopt Kaalu. We have a small garden.', type: 'adoption' },
   ]);
+
+  // Product reviews per breed (every puppy shows its breed's rating)
+  const reviews = [];
+  data.breeds.forEach((b) => {
+    const short = b.name.replace(' (Indian Pariah)', '');
+    for (let i = 0, n = between(5, 14); i < n; i += 1) {
+      const [rating, title, comment] = pick(data.reviewPool);
+      reviews.push({ breed: b.name, name: pick(data.reviewers), rating, title, comment: comment.replaceAll('{breed}', short), verified: true, helpful: between(0, 42), createdAt: new Date(Date.now() - between(2, 220) * 864e5) });
+    }
+  });
+  await Review.insertMany(reviews, { timestamps: false });
+  await Counter.create({ _id: 'group', seq });
 
   await Testimonial.insertMany(data.testimonials.map((t) => ({ ...t, approved: true, image: photosFor(t.breed === 'Indie' ? 'Indie (Indian Pariah)' : t.breed, 1)[0] })));
 

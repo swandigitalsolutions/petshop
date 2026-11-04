@@ -36,14 +36,15 @@ export const ORDER_STATUSES = ['placed', 'confirmed', 'vet_check', 'ready', 'com
 const orderSchema = new mongoose.Schema(
   {
     orderNo: { type: String, unique: true, index: true },
+    groupNo: { type: String, index: true }, // one checkout can contain several puppies (one order each)
     user: { type: mongoose.Schema.Types.ObjectId, ref: 'User', index: true },
     pet: { type: mongoose.Schema.Types.ObjectId, ref: 'Pet', index: true },
-    petSnapshot: { name: String, breed: String, image: String, slug: String, gender: String, price: Number },
+    petSnapshot: { name: String, breed: String, image: String, slug: String, gender: String, price: Number, mrp: Number },
     customer: { name: String, phone: String, email: String },
     paymentPlan: { type: String, enum: ['deposit', 'full'], default: 'deposit' },
     handover: { type: String, enum: ['pickup', 'home_delivery'], default: 'pickup' },
     handoverDate: Date,
-    address: { line1: String, line2: String, city: String, state: String, pincode: String },
+    address: { name: String, phone: String, line1: String, line2: String, city: String, state: String, pincode: String },
     petPrice: Number,
     deliveryFee: { type: Number, default: 0 },
     discount: { type: Number, default: 0 },
@@ -153,6 +154,8 @@ const settingSchema = new mongoose.Schema(
     heroTitle: String,
     heroSubtitle: String,
     heroImage: String,
+    banners: [{ title: String, subtitle: String, cta: String, link: String, breed: String, color: String, image: String }],
+    bankOffers: [String],
     depositPercent: { type: Number, default: 10 },
     minDeposit: { type: Number, default: 5000 },
     homeDeliveryFee: { type: Number, default: 1500 },
@@ -166,6 +169,22 @@ const settingSchema = new mongoose.Schema(
   { timestamps: true },
 );
 export const Setting = mongoose.model('Setting', settingSchema);
+
+// ---------- Product reviews (per breed: each puppy is unique) ----------
+const reviewSchema = new mongoose.Schema(
+  {
+    breed: { type: String, required: true, index: true },
+    user: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+    name: String,
+    rating: { type: Number, min: 1, max: 5, required: true },
+    title: String,
+    comment: { type: String, required: true },
+    verified: { type: Boolean, default: false },
+    helpful: { type: Number, default: 0 },
+  },
+  { timestamps: true },
+);
+export const Review = mongoose.model('Review', reviewSchema);
 
 const subscriberSchema = new mongoose.Schema(
   { email: { type: String, unique: true, lowercase: true, trim: true } },
