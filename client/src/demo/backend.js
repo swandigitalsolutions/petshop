@@ -14,7 +14,7 @@ const VISIT_TYPES = [
 ];
 const ORDER_STATUSES = ['placed', 'confirmed', 'vet_check', 'ready', 'completed', 'cancelled'];
 const DOG_CEO = {
-  'Golden Retriever': 'retriever/golden', 'Labrador Retriever': 'labrador', 'German Shepherd': 'germanshepherd', Beagle: 'beagle',
+  'Golden Retriever': 'retriever/golden', 'Labrador Retriever': 'labrador', 'German Shepherd': 'german/shepherd', Beagle: 'beagle',
   'Shih Tzu': 'shihtzu', Pug: 'pug', 'Siberian Husky': 'husky', 'French Bulldog': 'bulldog/french', Pomeranian: 'pomeranian',
   Rottweiler: 'rottweiler', 'Cocker Spaniel': 'spaniel/cocker', Dachshund: 'dachshund', Doberman: 'doberman', Maltese: 'maltese',
   'Lhasa Apso': 'lhasa', 'Border Collie': 'collie/border', 'Great Dane': 'dane/great', 'Indie (Indian Pariah)': 'mix',

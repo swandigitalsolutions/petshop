@@ -17,7 +17,7 @@ const CANDIDATES = 20; // photos downloaded per breed to choose from
 const BREEDS = {
   'Golden Retriever': 'retriever/golden',
   'Labrador Retriever': 'labrador',
-  'German Shepherd': 'germanshepherd',
+  'German Shepherd': 'german/shepherd',
   Beagle: 'beagle',
   'Shih Tzu': 'shihtzu',
   Pug: 'pug',

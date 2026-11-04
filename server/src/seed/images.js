@@ -13,7 +13,7 @@ const DIR = path.resolve('uploads', 'seed');
 export const DOG_CEO_PATHS = {
   'Golden Retriever': 'retriever/golden',
   'Labrador Retriever': 'labrador',
-  'German Shepherd': 'germanshepherd',
+  'German Shepherd': 'german/shepherd',
   Beagle: 'beagle',
   'Shih Tzu': 'shihtzu',
   Pug: 'pug',
